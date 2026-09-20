@@ -2,7 +2,7 @@
 priority: p1
 type: task
 created: 2026-09-20T18:12:48-04:00
-updated: 2026-09-20T18:12:57-04:00
+updated: 2026-09-20T18:24:45-04:00
 may-unblock:
   - 28j
   - wh2
@@ -55,3 +55,9 @@ Parent: wip/v7x. Unblocks wip/28j, wip/wh2, wip/mfa.
 - [ ] `swift run decide` exits 0.
 - [ ] `.build/` and `.swiftpm/` are git-ignored.
 - [ ] `Package.swift` depends on `../DecisionModels` by path. `DecideCore` links `DecisionModels`, `DecisionModelsTypeSafe`, and `DecisionModelsOpenRouter`. The test target links `DecisionModelsTesting`.
+
+---
+
+_📝 Noted on 2026-09-20 18:24:45-04:00 @ git:24c0c94+local_
+
+Done. Package.swift (tools 6.2, macOS 15, Swift 6 mode) with products: executable decide. Targets: DecideCore (links DecisionModels, DecisionModelsTypeSafe, DecisionModelsOpenRouter), decide (@main DecideCommand, static func main() async, calls Decide.run then exit), DecideCoreTests (Swift Testing, links DecisionModelsTesting). Dependency on ../DecisionModels by path. swift build -Xswiftc -warnings-as-errors clean (also --build-tests); swift test passes 1 placeholder test; swift run decide exits 0. .build/ and .swiftpm/ added to .gitignore. Package.resolved is committed (pins swift-syntax 602.0.0). The first build took about 12 s, not minutes: swift-syntax was already in the shared SwiftPM cache from the library's own builds.
