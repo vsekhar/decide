@@ -9,8 +9,10 @@ let package = Package(
         .executable(name: "decide", targets: ["decide"]),
     ],
     dependencies: [
-        // The library has no tags yet. A path keeps both checkouts in step.
-        .package(path: "../DecisionModels"),
+        // To build against the working copy in ../DecisionModels instead:
+        //   swift package edit DecisionModels --path ../DecisionModels
+        // and `swift package unedit DecisionModels` to go back to the tag.
+        .package(url: "https://github.com/vsekhar/DecisionModels.git", from: "0.1.0"),
     ],
     targets: [
         .executableTarget(name: "decide", dependencies: ["DecideCore"]),
