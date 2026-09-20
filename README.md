@@ -9,6 +9,10 @@ shell one-liner. Many questions about a stream of events is the same
 command with one more flag, and each event costs one request no matter how
 many questions you ask.
 
+### Classification
+
+Choose from among discrete choices:
+
 ```sh
 $ decide --context @ticket.txt \
          "Which team handles this ticket?" \
@@ -19,8 +23,9 @@ $ decide --context @ticket.txt \
 returns
 ```
 
+Full details for all decisions are available as parsable JSON:
+
 ```sh
-# Show me your work (JSON)
 $ decide --context @ticket.txt \
          "Which team handles this ticket?" \
          --option shipping \
@@ -31,8 +36,22 @@ $ decide --context @ticket.txt \
 {"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"returns":0.91,"shipping":0.06,"billing":0.03}}
 ```
 
+### Leveling
+
+Choose a level on a linear scale, where each level is "more of something" than the last:
+
 ```sh
-# How bad? (explain choices for better decisions)
+$ decide --context @ticket.txt \
+         "How urgent is this ticket?" \
+         --level not_urgent \
+         --level somewhat_urgent \
+         --level urgent
+not_urgent
+```
+
+Levels and options aren't just labels, they can include descriptions provided to the model to get better decisions:
+
+```sh
 $ decide --context @ticket.txt \
          "How urgent is this ticket?" \
          --level not_urgent="Customer feedback or feature request" \
@@ -41,50 +60,76 @@ $ decide --context @ticket.txt \
 somewhat_urgent
 ```
 
+### Yes or no
+
+Make a yes or no decision, with a custom confidence threshold and custom output values:
+
 ```sh
-# Apply policy (multiple named contexts, custom threshold, custom answers, explanation)
-$ decide --context ticket=@ticket.txt \
-         --context refund_policy=@refund_policy.txt \
+$ decide --context @ticket.txt \
          "Should we issue a refund?" \
-         --min_confidence=0.7 \
-         --yes "Hell yeah"="Allowed by the policy and desired by the customer" \
+         --min-confidence=0.7 \ # anything less is a No
+         --yes "Hell yeah" \
          --no "Forget it"
 
 Hell yeah
 ```
 
+### Composite context
+
+Compose multiple named context sources and refer to them in the question and option descriptions:
+
 ```sh
-# Control a script (--exit terminates with 0 for yes and 1 for no because bash...)
-if decide --context="$body" "Is this message spam?" \
-          --min_confidence=0.7 \
+$ decide --context ticket=@ticket.txt \
+         --context refund_policy=@refund_policy.txt \
+         "Should we issue a refund?" \
+         --min-confidence=0.7 \
+         --yes "Hell yeah"="Allowed by refund_policy and requested in ticket" \
+         --no "Forget it"
+
+Forget it
+```
+
+Use exit codes to control a script using yes or no decisions:
+
+```sh
+if decide --context="$body" \
+          "Is this message spam?" \
+          --min-confidence=0.7 \
           --exit; then
   mv "$file" spam/
 fi
 ```
 
+### Batch questions
+
+Improve performance and decrease costs by batching questions for a given context:
+
 ```sh
-# Batch questions (reads context once, much faster and cheaper)
 $ decide --context @ticket.txt \
      "Which team handles this ticket?" --option shipping --option billing --option returns \
      "How urgent is this ticket?" --level not_urgent --level somewhat_urgent --level urgent \
-     "Should we issue a refund?" --min_confidence 0.7 --yes Yes --no No
+     "Should we issue a refund?" --min-confidence 0.7 --yes Yes --no No
 returns
 somewhat_urgent
 Yes
 ```
+
+Read multiple questions from a file:
 
 ```sh
 # Questions from a file
 $ cat triage.decide
 "Which team handles this ticket" --option shipping --option billing --option returns
 "How urgent is this ticket" --level not_urgent --level somewhat_urgent --level urgent
-"Should we issue a refund" --min_confidence 0.7 --yes Yes --no No
+"Should we issue a refund" --min-confidence 0.7 --yes Yes --no No
 
 $ decide --context @ticket.txt --questions @triage.decide
 returns
 somewhat_urgent
 Yes
 ```
+
+### Streaming
 
 ```sh
 # Stream named JSON context, decide for each line on STDIN
@@ -95,20 +140,25 @@ cat events.jsonl | decide --context policy=@policy.txt \
                           --json > triage_decisions.jsonl
 ```
 
+### Errors
+
+Handle non-decision errors (loss of network, etc.) using `--fallback`:
+
 ```sh
-# Handle non-decision errors (loss of network, etc.) with --fallback
 $ sudo ip link set eth0 down
 $ decide --context "$body" \
          "Which team handles this ticket?" \
          --option shipping \
          --option billing \
          --option returns \
-         --min_confidence 0.7 \
+         --min-confidence 0.7 \
          --fallback human
 
 stderr>  Error: cannot reach decision model server
 human
 ```
+
+Define safe paths for scripts:
 
 ```sh
 # Define safe path for a script
@@ -117,8 +167,11 @@ if decide --context "$body" "Is this message spam?" --exit --fallback false; the
 fi
 ```
 
+### Advanced Questionnaires
+
+Advanced questionnaires can use names, richer descriptions and structured instructions.
+
 ```sh
-# Advanced: JSON questionnaire (names, richer descriptions, structured instructions)
 $ cat triage.json
 {
   "questions": [
@@ -167,7 +220,7 @@ $ cat triage.json
       },
       "yes": {"id": "Yes", "summary": "The policy allows a refund for this case"},
       "no":  {"id": "No",  "summary": "The policy forbids it, or the customer does not ask for money back"},
-      "min_confidence": 0.7
+      "min-confidence": 0.7
     }
   ]
 }
@@ -175,13 +228,15 @@ $ cat triage.json
 $ decide --context ticket=@ticket.txt \
          --context refund_policy=@refund_policy.txt \
          --questions @triage.json
+
 returns
 somewhat_urgent
 Yes
 ```
 
+Named questions can be parsed out of batched or complex questionnaires with JSON output:
+
 ```sh
-# Named questions give keyed JSON output
 $ decide --context ticket=@ticket.txt \
          --context refund_policy=@refund_policy.txt \
          --questions @triage.json --json
@@ -190,35 +245,50 @@ $ decide --context ticket=@ticket.txt \
  "refund":{"kind":"verdict","answer":true,"probability":0.87}}
 ```
 
-The JSON form adds what a one-line grammar cannot carry:
-
-- **Names.** Each question gets a `name`, so JSON output is keyed instead of
-  ordered, and `--annotate` knows where to put each answer in an event.
-- **Richer options and levels.** Beside a `summary`, an option or level can
-  say what it is `not_for`, give `examples`, and list `signals` to look for.
-  A plain string still works where you need no more than an id.
-- **Both sides of a yes or no question.** `yes` and `no` take the same
-  shape as an option: a label, or an object with an `id` to print and a
-  `summary` that tells the model what that side means.
-- **Structured instructions.** `instructions` can be an object, such as a
-  question plus a list of rules, instead of one line of text.
-- **Per-question settings next to the question.** `min_confidence` lives
-  with the question it governs.
-- **Generated questionnaires.** A program can write the file, so an ingest
-  pipeline can build its questions from a catalog or a database.
-
 ## Setup
 
+The model and API key are read from the environment:
+
 ```sh
-# Read model and key from environment
 $ export DECIDE_MODEL=jev-latest
 $ export DECIDE_MODEL_API_KEY=abc123...
 $ decide ...
 ```
 
+Both can be specified or overridden on the command line:
+
 ```sh
-# Specify model and/or key on command line (overrides environment)
-$ decide --model=jev-latest --key=abc123... ...
+$ decide --model=jev-latest --model-api-key=abc123... ...
 ```
 
-## Exit codes
+## Appendix
+
+### Exit codes and errors
+
+Decisions are printed to stdout and the exit code reports errors:
+
+| Code | Decision |
+|---|---|
+| 0 | Decided: see stdout
+| 1 | Not used
+| 2 | Not decided: setup or input error (bad usage, model or key missing)
+| 3 | Not decided: runtime error (network, timeout, rate limit)
+
+When the `--exit` flag is used for scripting, the error code carries the decision and stdout is not used:
+
+| Code | Decision |
+|---|---|
+| 0 | Decided: Yes
+| 1 | Decided: No
+| 2 | Not decided: setup or input error (bad usage, model or key missing)
+| 3 | Not decided: runtime error (network, timeout, rate limit)
+
+Only 0 and 1 carry an answer. A script that branches on `--exit` should put the action on the yes side,
+or switch on `$?`.
+
+`--fallback` turns runtime errors (exit code 3) into decisions (exit code 0) and prints the fallback value. With `--exit` it
+returns the code of the fallback's side, or the fallback exit code.
+
+In a stream, 2 stops the run at once. 3 is per event: the failed
+event gets an error line or its fallback, the stream goes on, and the final
+code is 4 if any event failed without a fallback.
