@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:56-04:00
-updated: 2026-09-20T18:35:20-04:00
+updated: 2026-09-20T18:47:32-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -74,3 +74,9 @@ Landed from the worker's worktree: Runner.swift (Outcome, Runner.makeQuestionnai
 _📝 Noted on 2026-09-20 18:35:20-04:00 @ git:e31b7ea+local_
 
 Dead code kept on purpose: Outcome.confidence and Outcome.probabilities are not printed by the skeleton (JSON output is out of scope for wip/v7x); the issue asks for them so --json can use them later. Tests cover both.
+
+---
+
+_📝 Noted on 2026-09-20 18:47:32-04:00 @ git:88ad48a+local_
+
+Verifier note, fixed: the two malformedResponse tests now pin the exact texts ('The response holds no answer for q2.' and 'The answer for q1 is not a choice.') instead of contains("qN").

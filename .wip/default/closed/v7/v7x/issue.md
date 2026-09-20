@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-20T18:13:27-04:00
-updated: 2026-09-20T18:13:27-04:00
+updated: 2026-09-20T18:55:40-04:00
 ---
 
 # decide skeleton: classification questions over one context
@@ -52,3 +52,9 @@ Each child carries its own unit tests with `ScriptedModel`. The entry point issu
 | wip/ayd | Wire the entry point: load context, decide, print answers | 28j, wh2, mfa |
 
 Start with wip/s47. Then wip/28j, wip/wh2, and wip/mfa can run in parallel. wip/ayd integrates them. wip/28j and wip/wh2 both touch `Sources/DecideCore/Invocation.swift`; whichever lands first creates it.
+
+---
+
+_📝 Noted on 2026-09-20 18:55:40-04:00 @ git:88ad48a+local_
+
+Done (2026-09-20). The skeleton runs the README classification example and the batch example limited to --option questions from a shell with a real key: 'returns' for the returns ticket, 'shipping' then 'urgent' for the two-question @file run. Layout: Package.swift (executable decide over library DecideCore, test target DecideCoreTests, path dependency ../DecisionModels); DecideCore holds Invocation types, CommandLineParser, UsageError, Runner, ModelConfiguration, ExitCode, StandardStreams, Decide.run. Tests: 55 offline (swift test --skip DecideLive) plus 1 live (set -a; . ./.env; set +a; swift test --filter DecideLive). Two verifier passes, all criteria hold. Known gotchas: 'swift run decide --context @file' breaks because SwiftPM expands @path as a response file; call .build/debug/decide directly. 'typesafe: jev-latest' keeps the space in the model part by design. Out of scope items stand as listed in this issue.

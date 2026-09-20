@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:54-04:00
-updated: 2026-09-20T18:32:43-04:00
+updated: 2026-09-20T18:47:32-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -80,3 +80,9 @@ Design record (2026-09-20). Invocation.swift is written and committed by the mai
 _📝 Noted on 2026-09-20 18:32:43-04:00 @ git:e31b7ea+local_
 
 Landed from the worker's worktree: UsageError.swift, CommandLineParser.swift, CommandLineParserTests.swift (23 tests). Worker judgement calls, accepted: '--context=' with nothing after the = gives .text("") (only the two-token form errors on a missing value); final checks run one pass per question (no --option first, then duplicates); the unknown-flag test also covers a lone '-'. Main-tree build is clean under -warnings-as-errors and the suite passes.
+
+---
+
+_📝 Noted on 2026-09-20 18:47:32-04:00 @ git:88ad48a+local_
+
+Verifier notes: (a) '--context=' now has a test (gives .text("")); (b) known limit, accepted: the two-token form takes the next token whatever it is, so 'decide --context --option a "Q"' makes the context the text '--option' and fails later with a misnamed usage error; the = form exists for values that start with '-'; (c) the one-pass check order is not pinned by a test, since it is unobservable within one question.

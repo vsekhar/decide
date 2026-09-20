@@ -6,7 +6,14 @@ import Foundation
 @main
 struct DecideCommand {
     static func main() async {
-        let code = await Decide.run()
+        var stdout = StandardOutput()
+        var stderr = StandardError()
+        let code = await Decide.run(
+            arguments: Array(CommandLine.arguments.dropFirst()),
+            environment: ProcessInfo.processInfo.environment,
+            stdout: &stdout,
+            stderr: &stderr
+        )
         exit(code)
     }
 }

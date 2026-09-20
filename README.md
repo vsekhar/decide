@@ -247,10 +247,12 @@ $ decide --context ticket=@ticket.txt \
 
 ## Setup
 
-The model and API key are read from the environment:
+The model and API key are read from the environment. The model is
+`provider:model`. The provider is `typesafe` or `openrouter`, and the model
+part goes to the provider as is:
 
 ```sh
-$ export DECIDE_MODEL=jev-latest
+$ export DECIDE_MODEL=typesafe:jev-latest    # or openrouter:typesafe/jev-1.13
 $ export DECIDE_MODEL_API_KEY=abc123...
 $ decide ...
 ```
@@ -258,7 +260,7 @@ $ decide ...
 Both can be specified or overridden on the command line:
 
 ```sh
-$ decide --model=jev-latest --model-api-key=abc123... ...
+$ decide --model=typesafe:jev-latest --model-api-key=abc123... ...
 ```
 
 ## Appendix

@@ -120,7 +120,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message.contains("q2"))
+        #expect(message == "The response holds no answer for q2.")
     }
 
     @Test("An answer of the wrong kind is a malformed response")
@@ -146,7 +146,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message.contains("q1"))
+        #expect(message == "The answer for q1 is not a choice.")
     }
 }
 

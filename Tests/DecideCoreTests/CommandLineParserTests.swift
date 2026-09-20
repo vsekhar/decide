@@ -86,6 +86,12 @@ struct CommandLineParserTests {
         #expect(result == .run(Invocation(context: .text("text with spaces"), questions: [question])))
     }
 
+    @Test("--context= with nothing after the = is empty text")
+    func contextEqualsEmpty() throws {
+        let result = try CommandLineParser.parse(["--context=", "Q", "--option", "a"])
+        #expect(result == .run(Invocation(context: .text(""), questions: [question])))
+    }
+
     @Test("An @ after the first character stays literal text")
     func contextLateAtSign() throws {
         let result = try CommandLineParser.parse(["--context", "mail me@example.com", "Q", "--option", "a"])

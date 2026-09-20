@@ -1,4 +1,5 @@
 import DecisionModels
+import Foundation
 
 /// The README's exit codes and the one-line message for each error.
 public enum ExitCode {
@@ -12,6 +13,8 @@ public enum ExitCode {
     /// Gives the exit code for an error.
     public static func code(for error: any Error) -> Int32 {
         switch error {
+        case is UsageError:
+            usage
         case is ConfigurationError:
             usage
         case let error as DecisionError:
@@ -24,6 +27,8 @@ public enum ExitCode {
     /// Gives the one-line message for an error. It never holds a key.
     public static func message(for error: any Error) -> String {
         switch error {
+        case let error as UsageError:
+            oneLine("Error: \(error.message)")
         case let error as ConfigurationError:
             oneLine(message(for: error))
         case let error as DecisionError:
@@ -150,10 +155,10 @@ public enum ExitCode {
         ModelConfiguration.Provider.allCases.map(\.rawValue).joined(separator: ", ")
     }
 
-    /// Turns every newline into a space, so one error prints on one line.
+    /// Turns every line break into a space, so one error prints on one line.
     private static func oneLine(_ text: String) -> String {
         let scalars = text.unicodeScalars.map { scalar in
-            scalar == "\n" || scalar == "\r" ? " " : scalar
+            CharacterSet.newlines.contains(scalar) ? " " : scalar
         }
         return String(String.UnicodeScalarView(scalars))
     }

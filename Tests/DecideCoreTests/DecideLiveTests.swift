@@ -1,0 +1,77 @@
+import Foundation
+import Testing
+
+@testable import DecideCore
+
+/// A test that calls the real service. It costs money, so the suite sends one
+/// request and no more.
+///
+/// Run it with the model and the key in the environment:
+///
+/// ```sh
+/// set -a; . ./.env; set +a; swift test --filter DecideLive
+/// ```
+///
+/// Without them this test fails. It never skips, because a green run that
+/// talked to nothing says nothing.
+@Suite("DecideLive", .serialized)
+struct DecideLiveTests {
+    /// The real environment, or a recorded failure that names what is missing.
+    ///
+    /// The key may come from `DECIDE_MODEL_API_KEY` or from a provider's own
+    /// variable, as the tool allows.
+    private func liveEnvironment(
+        _ location: SourceLocation = #_sourceLocation
+    ) -> [String: String]? {
+        let environment = ProcessInfo.processInfo.environment
+        func isSet(_ variable: String) -> Bool {
+            let value = environment[variable]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !(value?.isEmpty ?? true)
+        }
+        let keyVariables = [ModelConfiguration.apiKeyVariable, "TYPESAFE_API_KEY", "OPENROUTER_API_KEY"]
+        let missing: String? =
+            if !isSet(ModelConfiguration.modelVariable) {
+                ModelConfiguration.modelVariable
+            } else if !keyVariables.contains(where: isSet) {
+                keyVariables.joined(separator: ", ")
+            } else {
+                nil
+            }
+        guard let missing else { return environment }
+        Issue.record(
+            """
+            \(missing) is not set, so the live test cannot reach the service. \
+            Run: set -a; . ./.env; set +a; swift test --filter DecideLive
+            """,
+            sourceLocation: location
+        )
+        return nil
+    }
+
+    @Test("decide triages a support ticket")
+    func triagesATicket() async {
+        guard let environment = liveEnvironment() else { return }
+
+        let ticket = """
+            I sent the shoes back two weeks ago and I still have not got my money back. \
+            Order 4471.
+            """
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: [
+                "--context", ticket,
+                "Which team handles this ticket?",
+                "--option", "shipping", "--option", "billing", "--option", "returns",
+            ],
+            environment: environment,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(err.isEmpty)
+        #expect(["shipping\n", "billing\n", "returns\n"].contains(out))
+    }
+}

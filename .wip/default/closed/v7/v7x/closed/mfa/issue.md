@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:57-04:00
-updated: 2026-09-20T18:35:20-04:00
+updated: 2026-09-20T18:47:32-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -94,3 +94,9 @@ Refinement (2026-09-20, in the worker brief): 'provider' is 'public enum Provide
 _📝 Noted on 2026-09-20 18:35:19-04:00 @ git:e31b7ea+local_
 
 Landed from the worker's worktree: ModelConfiguration.swift (ConfigurationError, ModelConfiguration with nested Provider enum), ExitCode.swift, ModelConfigurationTests.swift (12 tests), ExitCodeTests.swift (5 tests). '@unknown default' raised no warning under -warnings-as-errors, so it stays on the three switches over DecisionError and DecisionError.Unsupported; the switch over DecisionModelAvailability.Reason is plain exhaustive. Worker judgement calls, accepted: Foundation import for trimming; oneLine() walks unicode scalars so a CRLF (one Character) still turns into spaces; the test table is a function, not a global let, to satisfy Swift 6 sendability. Main-tree build clean; full offline suite 46 tests in 5 suites passes. Dead code kept on purpose: ExitCode.decided has no caller until wip/ayd.
+
+---
+
+_📝 Noted on 2026-09-20 18:47:32-04:00 @ git:88ad48a+local_
+
+Verifier (2026-09-20) on 28j/wh2/mfa: every acceptance criterion holds; one should-fix, fixed: the one-line message test searched a String for "\n", which misses a CRLF (one Character). ExitCodeTests now checks unicode scalars against an explicit set of line-break scalars and the table carries CRLF and U+2028 payloads; the mutant (handle only \n) fails 2 expectations, the real code passes. oneLine() now uses CharacterSet.newlines (adds U+000B, U+000C, U+0085, U+2028, U+2029) with import Foundation. The table also gained every Unsupported sub-case and the nil payload shapes of contextSizeExceeded and rateLimited. Known and accepted: 'typesafe: jev-latest' keeps the leading space in the model part (verbatim by design). The exact message texts now live only in ExitCode.swift; the verifier checked them against the issue's constraints.
