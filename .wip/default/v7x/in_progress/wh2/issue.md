@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:56-04:00
-updated: 2026-09-20T18:13:04-04:00
+updated: 2026-09-20T18:26:04-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -56,3 +56,9 @@ Parent: wip/v7x. Blocked on wip/s47. Shares `Invocation.swift` with wip/28j. wip
 - [ ] Outcomes are in question order with answer, confidence, and probabilities.
 - [ ] Option descriptions reach the request as the criterion summary. A bare option uses its id.
 - [ ] Tests pass with `ScriptedModel` and no network.
+
+---
+
+_📝 Noted on 2026-09-20 18:26:04-04:00 @ git:ccab071+local_
+
+Design record (2026-09-20). Question and Option come from Sources/DecideCore/Invocation.swift, written and committed by the main session; this issue does not edit that file. Decisions beyond the issue text: (1) The two functions are static members of 'enum Runner' (Runner.makeQuestionnaire(_:) and Runner.decide(_:about:using:)), not free functions, so they read clearly next to Decide.run and DecisionSession.decide. (2) Outcome is 'public struct Outcome: Sendable, Equatable'. (3) In test files that import both DecideCore and DecisionModels, 'Question' is ambiguous (the library has a protocol of that name); tests write DecideCore.Question. Inside DecideCore the module's own type shadows the import. (4) malformedResponse messages: 'The response holds no answer for q2.' and 'The answer for q2 is not a choice.' Implemented by a worker in a scratch worktree, then copied back.

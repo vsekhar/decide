@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:54-04:00
-updated: 2026-09-20T18:13:04-04:00
+updated: 2026-09-20T18:26:03-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -68,3 +68,9 @@ Parent: wip/v7x. Blocked on wip/s47. wip/wh2 shares `Invocation.swift`. wip/ayd 
 - [ ] Each error case above throws a `UsageError` whose message names the problem.
 - [ ] The parser does no I/O.
 - [ ] Tests pass under `swift test`.
+
+---
+
+_📝 Noted on 2026-09-20 18:26:03-04:00 @ git:ccab071+local_
+
+Design record (2026-09-20). Invocation.swift is written and committed by the main session with the four types: Invocation(context:questions:), ContextSource(.text/.file), Question(instructions:options:), Option(id:description:). All are public, Sendable, Equatable with memberwise public inits. The parser issue does not change that file. Decisions beyond the issue text: (1) ParseResult is 'enum ParseResult: Equatable { case help; case run(Invocation) }'. (2) UsageError is 'struct UsageError: Error, Equatable { let message: String }'; messages are bare (no 'Error: ' prefix, wip/ayd adds it when printing) and name the question by number and text, e.g. 'question 2 ("How urgent is this ticket?") has no --option'. (3) '--context @' with nothing after the @ is a usage error. (4) An empty question token ("") is a usage error. (5) '--option' with an empty id ('--option ""' or '--option =desc') is a usage error. (6) Only --context and --option take values; both accept '--flag value' and '--flag=value', split at the first '='. (7) '--help' and '-h' win wherever they appear, even after a usage error would have been raised by an earlier token? No: the walk stops at the first error it meets, except that --help anywhere returns .help; so the parser scans for --help/-h first, then walks. Implemented by a worker in a scratch worktree, then copied back.

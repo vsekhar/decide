@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:57-04:00
-updated: 2026-09-20T18:13:04-04:00
+updated: 2026-09-20T18:26:04-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -76,3 +76,9 @@ Parent: wip/v7x. Blocked on wip/s47. wip/ayd calls `ModelConfiguration` and the 
 - [ ] Each `DecisionError` case maps to 2 or 3 as listed. Unknown errors map to 3.
 - [ ] Messages are one line and never include the key.
 - [ ] Tests pass under `swift test`.
+
+---
+
+_📝 Noted on 2026-09-20 18:26:04-04:00 @ git:ccab071+local_
+
+Design record (2026-09-20). Decisions beyond the issue text: (1) The mapping functions are static members of 'enum ExitCode': ExitCode.code(for:) and ExitCode.message(for:), beside the three constants. (2) 'enum ConfigurationError: Error, Equatable { case missingModel; case malformedModel(String); case unknownProvider(String) }'. (3) ModelConfiguration is Equatable. (4) DECIDE_MODEL is trimmed of surrounding whitespace before the checks; blank after trimming counts as missing. The provider part must match 'typesafe' or 'openrouter' exactly (lowercase). The model part is not trimmed further and goes to the provider verbatim. (5) If '@unknown default' on the DecisionError switch warns under -warnings-as-errors, the switch is written exhaustively instead and the report says so. (6) UsageError (wip/28j) is not in this mapping; wip/ayd adds it, because the two issues land in separate worktrees. (7) Message texts are fixed in the worker brief; the key never appears in any message. Implemented by a worker in a scratch worktree, then copied back.
