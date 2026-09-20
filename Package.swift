@@ -9,9 +9,7 @@ let package = Package(
         .executable(name: "decide", targets: ["decide"]),
     ],
     dependencies: [
-        // To build against the working copy in ../DecisionModels instead:
-        //   swift package edit DecisionModels --path ../DecisionModels
-        // and `swift package unedit DecisionModels` to go back to the tag.
+        // DEVELOPMENT.md says how to build against a local checkout instead.
         .package(url: "https://github.com/vsekhar/DecisionModels.git", from: "0.1.0"),
     ],
     targets: [

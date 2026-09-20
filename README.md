@@ -263,6 +263,10 @@ Both can be specified or overridden on the command line:
 $ decide --model=typesafe:jev-latest --model-api-key=abc123... ...
 ```
 
+## Development
+
+To build the tool or run its tests, see DEVELOPMENT.md and TESTING.md.
+
 ## Appendix
 
 ### Exit codes and errors

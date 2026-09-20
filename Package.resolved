@@ -1,6 +1,15 @@
 {
-  "originHash" : "4fb70f7798e40e682afcacb03b28f101528f32fde75182423c451ec2a18cb2c0",
+  "originHash" : "fe55942376ffda3280df3a3ca75d2fcef8e0a04e3a80131516208e861b89fc84",
   "pins" : [
+    {
+      "identity" : "decisionmodels",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vsekhar/DecisionModels.git",
+      "state" : {
+        "revision" : "e115b352ef23b670af2e8b7ba81f8221f092f0df",
+        "version" : "0.1.0"
+      }
+    },
     {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
