@@ -39,31 +39,6 @@ targets are awkward.
   `DecideRunTests` for a whole run with a scripted model and
   `DecideLiveTests` for the real model.
 
-## The DecisionModels dependency
-
-`Package.swift` depends on the library by tag. To build against the working
-copy at `../DecisionModels` instead:
-
-```sh
-swift package edit DecisionModels --path ../DecisionModels
-```
-
-This creates `Packages/DecisionModels`, a git-ignored symlink to the
-checkout. Builds then compile the working copy, uncommitted changes
-included. To go back to the tag:
-
-```sh
-swift package unedit DecisionModels
-```
-
-A build in edit mode rewrites `Package.resolved` without the library's pin,
-so `git status` shows it modified. Before you commit `Package.resolved`,
-unedit, then edit again after the commit.
-
-To move to a new library tag, change `from:` in `Package.swift`, then with
-edit mode off run `swift package update DecisionModels` and commit both
-files.
-
 ## Running the binary
 
 `swift run decide ...` works, with one trap: SwiftPM expands an argument that
