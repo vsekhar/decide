@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:56-04:00
-updated: 2026-09-20T18:26:04-04:00
+updated: 2026-09-20T18:35:20-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -62,3 +62,15 @@ Parent: wip/v7x. Blocked on wip/s47. Shares `Invocation.swift` with wip/28j. wip
 _📝 Noted on 2026-09-20 18:26:04-04:00 @ git:ccab071+local_
 
 Design record (2026-09-20). Question and Option come from Sources/DecideCore/Invocation.swift, written and committed by the main session; this issue does not edit that file. Decisions beyond the issue text: (1) The two functions are static members of 'enum Runner' (Runner.makeQuestionnaire(_:) and Runner.decide(_:about:using:)), not free functions, so they read clearly next to Decide.run and DecisionSession.decide. (2) Outcome is 'public struct Outcome: Sendable, Equatable'. (3) In test files that import both DecideCore and DecisionModels, 'Question' is ambiguous (the library has a protocol of that name); tests write DecideCore.Question. Inside DecideCore the module's own type shadows the import. (4) malformedResponse messages: 'The response holds no answer for q2.' and 'The answer for q2 is not a choice.' Implemented by a worker in a scratch worktree, then copied back.
+
+---
+
+_📝 Noted on 2026-09-20 18:33:29-04:00 @ git:e31b7ea+local_
+
+Landed from the worker's worktree: Runner.swift (Outcome, Runner.makeQuestionnaire, Runner.decide), RunnerTests.swift (5 tests). Worker judgement calls, accepted: the captured request sits behind a file-private final class RequestBox (Mutex is non-copyable, so an escaping closure cannot capture it directly, same pattern as ScriptedModel's CallCounter); async error checks read 'let error = await #expect(throws: DecisionError.self) { ... }'. String conforms to StateRepresentable (State.swift:86), so the context string goes to the session as is. Main-tree build clean under -warnings-as-errors; suite passes with the parser tests.
+
+---
+
+_📝 Noted on 2026-09-20 18:35:20-04:00 @ git:e31b7ea+local_
+
+Dead code kept on purpose: Outcome.confidence and Outcome.probabilities are not printed by the skeleton (JSON output is out of scope for wip/v7x); the issue asks for them so --json can use them later. Tests cover both.

@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:12:57-04:00
-updated: 2026-09-20T18:26:04-04:00
+updated: 2026-09-20T18:35:20-04:00
 blocked-on:
   - s47
 may-unblock:
@@ -82,3 +82,15 @@ Parent: wip/v7x. Blocked on wip/s47. wip/ayd calls `ModelConfiguration` and the 
 _📝 Noted on 2026-09-20 18:26:04-04:00 @ git:ccab071+local_
 
 Design record (2026-09-20). Decisions beyond the issue text: (1) The mapping functions are static members of 'enum ExitCode': ExitCode.code(for:) and ExitCode.message(for:), beside the three constants. (2) 'enum ConfigurationError: Error, Equatable { case missingModel; case malformedModel(String); case unknownProvider(String) }'. (3) ModelConfiguration is Equatable. (4) DECIDE_MODEL is trimmed of surrounding whitespace before the checks; blank after trimming counts as missing. The provider part must match 'typesafe' or 'openrouter' exactly (lowercase). The model part is not trimmed further and goes to the provider verbatim. (5) If '@unknown default' on the DecisionError switch warns under -warnings-as-errors, the switch is written exhaustively instead and the report says so. (6) UsageError (wip/28j) is not in this mapping; wip/ayd adds it, because the two issues land in separate worktrees. (7) Message texts are fixed in the worker brief; the key never appears in any message. Implemented by a worker in a scratch worktree, then copied back.
+
+---
+
+_📝 Noted on 2026-09-20 18:30:25-04:00 @ git:e31b7ea_
+
+Refinement (2026-09-20, in the worker brief): 'provider' is 'public enum Provider: String, CaseIterable, Sendable { case typesafe, openrouter }' nested in ModelConfiguration, not a String. makeModel() then switches exhaustively with no dead default branch. ConfigurationError.unknownProvider still carries the raw string the user typed. The message list (exact texts) is in the brief and will be checked by the verifier against ExitCode.swift.
+
+---
+
+_📝 Noted on 2026-09-20 18:35:19-04:00 @ git:e31b7ea+local_
+
+Landed from the worker's worktree: ModelConfiguration.swift (ConfigurationError, ModelConfiguration with nested Provider enum), ExitCode.swift, ModelConfigurationTests.swift (12 tests), ExitCodeTests.swift (5 tests). '@unknown default' raised no warning under -warnings-as-errors, so it stays on the three switches over DecisionError and DecisionError.Unsupported; the switch over DecisionModelAvailability.Reason is plain exhaustive. Worker judgement calls, accepted: Foundation import for trimming; oneLine() walks unicode scalars so a CRLF (one Character) still turns into spaces; the test table is a function, not a global let, to satisfy Swift 6 sendability. Main-tree build clean; full offline suite 46 tests in 5 suites passes. Dead code kept on purpose: ExitCode.decided has no caller until wip/ayd.

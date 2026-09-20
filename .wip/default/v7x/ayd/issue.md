@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T18:13:04-04:00
-updated: 2026-09-20T18:13:04-04:00
+updated: 2026-09-20T18:30:37-04:00
 blocked-on:
   - 28j
   - wh2
@@ -71,3 +71,9 @@ Parent: wip/v7x. Blocked on wip/28j, wip/wh2, wip/mfa.
 - [ ] `--help` prints the usage text.
 - [ ] `swift test --skip DecideLive` passes. `swift test --filter DecideLive` passes with a key.
 - [ ] The README Setup section shows the `provider:model` scheme.
+
+---
+
+_📝 Noted on 2026-09-20 18:30:37-04:00 @ git:e31b7ea+local_
+
+Design record (2026-09-20), written before implementation. (1) Signature: 'public static func run(arguments: [String], environment: [String: String], model: (any DecisionModel)? = nil, stdout: inout some TextOutputStream, stderr: inout some TextOutputStream) async -> Int32'. (2) Order inside run: parse (UsageError -> 'Error: <message>' then a blank line then the usage text, all on stderr, return 2; .help -> usage text on stdout, return 0); model = injected model ?? ModelConfiguration(environment:).makeModel() (ConfigurationError -> ExitCode.message on stderr, ExitCode.code); context (.text as is; .file read with String(contentsOfFile:encoding: .utf8); on failure print 'Error: cannot read context file "<path>": <error.localizedDescription>' to stderr and return 2, with no new error type and no usage text); DecisionSession(model:) then Runner.decide (any error -> ExitCode.message on stderr, ExitCode.code); print each outcome.answer with print(_:to: &stdout). Nothing else goes to stdout. (3) ExitCode gains 'case is UsageError: usage' in code(for:) and 'Error: <message>' in message(for:). (4) The process streams: 'Sources/DecideCore/StandardStreams.swift' with 'public struct StandardOutput: TextOutputStream' and 'public struct StandardError: TextOutputStream', each writing through FileHandle (unbuffered, so exit() loses nothing). The @main type stays a few lines. (5) The usage text is 'Decide.usage', a static String, fixed in the worker brief. (6) Tests/DecideCoreTests/DecideCoreTests.swift (the s47 placeholder) is deleted; DecideRunTests replaces it. (7) DecideLiveTests: suite 'DecideLive', .serialized; requires DECIDE_MODEL and DECIDE_MODEL_API_KEY from the process environment; records a failure (never skips) when either is missing; runs the README team question on an inline ticket text and accepts any of the three option ids. (8) README Setup: DECIDE_MODEL=typesafe:jev-latest with the openrouter:typesafe/jev-1.13 form beside it; the --model example value also becomes typesafe:jev-latest, the sentence stays. (9) .env: DECIDE_MODEL changed by hand to typesafe:jev-latest; not committed.
