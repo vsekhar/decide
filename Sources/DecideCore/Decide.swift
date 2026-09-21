@@ -23,6 +23,9 @@ public enum Decide {
           --yes <value>=<text>   The value, and what counts as yes.
           --no <value>           What a yes/no question prints for no. Default: no.
           --no <value>=<text>    The value, and what counts as no.
+          --min-confidence <n>   The confidence an answer needs, from 0 to 1. Below it
+                                 the run is unsure and exits 2. On a yes/no question, n
+                                 means P(yes) at least (1 + n) / 2 for yes.
           --help, -h             Print this text.
 
         Environment:
@@ -31,7 +34,7 @@ public enum Decide {
           DECIDE_MODEL_API_KEY   The API key. When unset, the provider reads its own
                                  variable: TYPESAFE_API_KEY or OPENROUTER_API_KEY.
 
-        Exit codes: 0 decided, 10 setup or input error, 11 remote error.
+        Exit codes: 0 decided, 2 unsure, 10 setup or input error, 11 remote error.
         """
 
     /// Runs the tool and returns the process exit code.

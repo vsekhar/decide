@@ -28,10 +28,14 @@ public struct Question: Sendable, Equatable {
     public var instructions: String
     /// A choice from options, a rating on levels, or a yes/no verdict.
     public var kind: Kind
+    /// The confidence the answer needs, from `--min-confidence`. `nil` means
+    /// no bar, so an absent flag never makes a run unsure.
+    public var minimumConfidence: Double?
 
-    public init(instructions: String, kind: Kind) {
+    public init(instructions: String, kind: Kind, minimumConfidence: Double? = nil) {
         self.instructions = instructions
         self.kind = kind
+        self.minimumConfidence = minimumConfidence
     }
 
     /// The kind of question. The flags after the question decide it:

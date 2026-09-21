@@ -44,6 +44,17 @@ private func errorTable() -> [(error: any Error, code: Int32)] {
         (ConfigurationError.unknownProvider("foo"), 10),
         (CancellationError(), 11),
         (Unknown(), 11),
+        (
+            UnsureError(questions: [
+                Unsure(
+                    number: 3,
+                    instructions: "Should we issue a refund?",
+                    confidence: 0.2,
+                    minimumConfidence: 0.7
+                )
+            ]),
+            2
+        ),
     ]
 }
 
@@ -59,6 +70,7 @@ struct ExitCodeTests {
     @Test("The constants are the README's numbers")
     func constants() {
         #expect(ExitCode.decided == 0)
+        #expect(ExitCode.unsure == 2)
         #expect(ExitCode.setup == 10)
         #expect(ExitCode.remote == 11)
     }
@@ -67,7 +79,10 @@ struct ExitCodeTests {
     func reservedRange() {
         for (error, _) in errorTable() {
             let code = ExitCode.code(for: error)
-            #expect(code == 0 || code >= 10, "1 to 9 are reserved for decision-like states: \(error)")
+            #expect(
+                code == 0 || code == 2 || code >= 10,
+                "1 and 3 to 9 are reserved for decision-like states: \(error)"
+            )
         }
     }
 
@@ -106,6 +121,42 @@ struct ExitCodeTests {
         #expect(
             ExitCode.message(for: UsageError("no --context given"))
                 == "Error: no --context given"
+        )
+    }
+
+    @Test("An unsure run names every question, its confidence, and its bar")
+    func unsureMessage() {
+        let one = UnsureError(questions: [
+            Unsure(
+                number: 3,
+                instructions: "Should we issue a refund?",
+                confidence: 0.2,
+                minimumConfidence: 0.7
+            )
+        ])
+        #expect(
+            ExitCode.message(for: one)
+                == """
+                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
+                below the bar of 0.70
+                """
+        )
+
+        let two = UnsureError(questions: one.questions + [
+            Unsure(
+                number: 4,
+                instructions: "Is this urgent?",
+                confidence: 0.4,
+                minimumConfidence: 0.5
+            )
+        ])
+        #expect(
+            ExitCode.message(for: two)
+                == """
+                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
+                below the bar of 0.70; question 4 ("Is this urgent?") has confidence 0.40, \
+                below the bar of 0.50
+                """
         )
     }
 

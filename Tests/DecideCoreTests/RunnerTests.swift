@@ -45,22 +45,45 @@ struct RunnerTests {
         urgency: .rating(score: 1.2, probabilities: urgencyProbabilities, confidence: 0.78)
     )
 
-    /// The team answer, plus the urgency record a test wants for `q2` and the
-    /// refund record it wants for `q3`.
+    /// What the model reports for the team: the whole scale, confidence and
+    /// all.
+    static let teamAnswer = AnswerRecord.choice(
+        reported: "returns", probabilities: teamProbabilities, confidence: 0.91
+    )
+
+    /// What the model reports for the rating, for the tests that vary
+    /// another question.
+    static let urgencyAnswer = AnswerRecord.rating(
+        score: 1.2, probabilities: urgencyProbabilities, confidence: 0.78
+    )
+
+    /// The urgency record a test wants for `q2`, the refund record it wants
+    /// for `q3`, and the team record it wants for `q1`.
     static func answers(
         urgency record: AnswerRecord,
-        refund: AnswerRecord = .verdict(probability: refundProbability)
+        refund: AnswerRecord = .verdict(probability: refundProbability),
+        team: AnswerRecord = teamAnswer
     ) -> Answers {
         Answers(
             records: [
-                "q1": .choice(
-                    reported: "returns", probabilities: teamProbabilities, confidence: 0.91
-                ),
+                "q1": team,
                 "q2": record,
                 "q3": refund,
             ],
             quality: .calibrated
         )
+    }
+
+    /// The three questions again, each with the bar at its place. `nil` is no
+    /// bar, so a test gates only the question it cares about.
+    static func questions(bars: [Double?]) -> [DecideCore.Question] {
+        zip(questions, bars).map { question, bar in
+            DecideCore.Question(
+                instructions: question.instructions,
+                kind: question.kind,
+                minimumConfidence: bar
+            )
+        }
     }
 
     @Test("The questions become specs q1, q2, and q3")
@@ -311,6 +334,42 @@ struct RunnerTests {
         #expect(message == "The answer for q2 is not a rating.")
     }
 
+    @Test("A reported confidence that is not a number is a malformed response")
+    func reportedConfidenceNaN() async {
+        let team = AnswerRecord.choice(
+            reported: "returns", probabilities: Self.teamProbabilities, confidence: .nan
+        )
+        let session = DecisionSession(model: ScriptedModel(answering: Self.answers(urgency: Self.urgencyAnswer, team: team)))
+
+        let error = await #expect(throws: DecisionError.self) {
+            _ = try await Runner.decide(Self.questions, about: Self.context, using: session)
+        }
+
+        guard case .malformedResponse(let message) = error else {
+            Issue.record("Expected a malformed response, got \(String(describing: error)).")
+            return
+        }
+        #expect(message == "The answer for q1 has confidence nan, outside 0 to 1.")
+    }
+
+    @Test("A reported confidence above 1 is a malformed response")
+    func reportedConfidenceTooHigh() async {
+        let urgency = AnswerRecord.rating(
+            score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 1.5
+        )
+        let session = DecisionSession(model: ScriptedModel(answering: Self.answers(urgency: urgency)))
+
+        let error = await #expect(throws: DecisionError.self) {
+            _ = try await Runner.decide(Self.questions, about: Self.context, using: session)
+        }
+
+        guard case .malformedResponse(let message) = error else {
+            Issue.record("Expected a malformed response, got \(String(describing: error)).")
+            return
+        }
+        #expect(message == "The answer for q2 has confidence 1.5, outside 0 to 1.")
+    }
+
     @Test("A rating under a choice question is a malformed response")
     func ratingUnderChoice() async {
         let answers = Answers(
@@ -440,6 +499,194 @@ struct RunnerTests {
             return
         }
         #expect(message == "The answer for q1 is not a choice.")
+    }
+
+    @Test("A choice below its bar is unsure, and one above it is not")
+    func choiceBar() async throws {
+        for (reported, bar, unsure) in [(0.6, 0.7, true), (0.8, 0.7, false)] {
+            let session = DecisionSession(
+                model: ScriptedModel(
+                    answering: Self.answers(
+                        urgency: Self.urgencyAnswer,
+                        team: .choice(
+                            reported: "returns",
+                            probabilities: Self.teamProbabilities,
+                            confidence: reported
+                        )
+                    )
+                )
+            )
+            let questions = Self.questions(bars: [bar, nil, nil])
+
+            if unsure {
+                let error = await #expect(throws: UnsureError.self) {
+                    _ = try await Runner.decide(questions, about: Self.context, using: session)
+                }
+                #expect(
+                    error
+                        == UnsureError(questions: [
+                            Unsure(
+                                number: 1,
+                                instructions: "Which team owns this ticket?",
+                                confidence: reported,
+                                minimumConfidence: bar
+                            )
+                        ])
+                )
+            } else {
+                let outcomes = try await Runner.decide(
+                    questions, about: Self.context, using: session
+                )
+                #expect(outcomes[0].answer == "returns")
+            }
+        }
+    }
+
+    @Test("A choice with no reported confidence is gated on the library's number")
+    func choiceBarWithoutReportedConfidence() async throws {
+        // 0.91/0.06/0.03 over three options gives about 0.67.
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Self.answers(
+                    urgency: Self.urgencyAnswer,
+                    team: .choice(
+                        reported: "returns",
+                        probabilities: Self.teamProbabilities,
+                        confidence: nil
+                    )
+                )
+            )
+        )
+
+        let outcomes = try await Runner.decide(
+            Self.questions(bars: [0.6, nil, nil]), about: Self.context, using: session
+        )
+        #expect(outcomes[0].answer == "returns")
+
+        await #expect(throws: UnsureError.self) {
+            _ = try await Runner.decide(
+                Self.questions(bars: [0.7, nil, nil]), about: Self.context, using: session
+            )
+        }
+    }
+
+    @Test("A rating is gated on its confidence over the whole scale")
+    func ratingBar() async throws {
+        // The three levels with no reported confidence give 0.3462.
+        let record = AnswerRecord.rating(
+            score: 1.2, probabilities: Self.urgencyProbabilities, confidence: nil
+        )
+        let session = DecisionSession(model: ScriptedModel(answering: Self.answers(urgency: record)))
+
+        let outcomes = try await Runner.decide(
+            Self.questions(bars: [nil, 0.3, nil]), about: Self.context, using: session
+        )
+        #expect(outcomes[1].answer == "somewhat_urgent")
+
+        await #expect(throws: UnsureError.self) {
+            _ = try await Runner.decide(
+                Self.questions(bars: [nil, 0.4, nil]), about: Self.context, using: session
+            )
+        }
+    }
+
+    @Test("A verdict near 0.5 is unsure, and a confident yes or no is not")
+    func verdictBar() async throws {
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Self.answers(
+                    urgency: Self.urgencyAnswer, refund: .verdict(probability: 0.6)
+                )
+            )
+        )
+
+        await #expect(throws: UnsureError.self) {
+            _ = try await Runner.decide(
+                Self.questions(bars: [nil, nil, 0.7]), about: Self.context, using: session
+            )
+        }
+
+        for (probability, answer) in [(0.05, "No"), (0.95, "Yes")] {
+            let confident = DecisionSession(
+                model: ScriptedModel(
+                    answering: Self.answers(
+                        urgency: Self.urgencyAnswer,
+                        refund: .verdict(probability: probability)
+                    )
+                )
+            )
+
+            let outcomes = try await Runner.decide(
+                Self.questions(bars: [nil, nil, 0.7]), about: Self.context, using: confident
+            )
+
+            #expect(outcomes[2].answer == answer)
+        }
+    }
+
+    @Test("Two questions below their bars are both listed, in order")
+    func twoUnsureQuestions() async {
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Self.answers(
+                    urgency: Self.urgencyAnswer,
+                    refund: .verdict(probability: 0.6),
+                    team: .choice(
+                        reported: "returns",
+                        probabilities: Self.teamProbabilities,
+                        confidence: 0.6
+                    )
+                )
+            )
+        )
+
+        let error = await #expect(throws: UnsureError.self) {
+            _ = try await Runner.decide(
+                Self.questions(bars: [0.7, nil, 0.8]), about: Self.context, using: session
+            )
+        }
+
+        #expect(
+            error
+                == UnsureError(questions: [
+                    Unsure(
+                        number: 1,
+                        instructions: "Which team owns this ticket?",
+                        confidence: 0.6,
+                        minimumConfidence: 0.7
+                    ),
+                    Unsure(
+                        number: 3,
+                        instructions: "Should we issue a refund?",
+                        // The library's number for P(yes) 0.6, to the last bit.
+                        confidence: AnswerRecord.verdict(probability: 0.6).confidence,
+                        minimumConfidence: 0.8
+                    ),
+                ])
+        )
+    }
+
+    @Test("Confidence 0 clears a bar of 0, and no bar clears anything")
+    func zeroBar() async throws {
+        // A verdict at 0.5 has confidence abs(2p - 1), which is 0.
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Self.answers(
+                    urgency: Self.urgencyAnswer, refund: .verdict(probability: 0.5)
+                )
+            )
+        )
+
+        let gated = try await Runner.decide(
+            Self.questions(bars: [nil, nil, 0]), about: Self.context, using: session
+        )
+        #expect(gated[2].confidence == 0)
+        #expect(gated[2].answer == "Yes")
+
+        let ungated = try await Runner.decide(
+            Self.questions(bars: [nil, nil, nil]), about: Self.context, using: session
+        )
+        #expect(ungated[2].answer == "Yes")
     }
 
     @Test("A choice under a rating question is a malformed response")

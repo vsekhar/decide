@@ -183,6 +183,7 @@ struct CommandLineParserTests {
             "--level", "somewhat_urgent",
             "--level", "urgent",
             "Should we issue a refund?",
+            "--min-confidence", "0.7",
             "--yes", "Yes",
             "--no", "No",
         ])
@@ -210,7 +211,8 @@ struct CommandLineParserTests {
                             ),
                             Question(
                                 instructions: "Should we issue a refund?",
-                                kind: .verdict(yes: Option(id: "Yes"), no: Option(id: "No"))
+                                kind: .verdict(yes: Option(id: "Yes"), no: Option(id: "No")),
+                                minimumConfidence: 0.7
                             ),
                         ]
                     )
@@ -536,15 +538,128 @@ struct CommandLineParserTests {
         }
     }
 
-    @Test("--min-confidence is not a flag yet")
-    func minConfidenceIsUnknown() {
+    @Test("--min-confidence sets the bar, in either value form")
+    func minimumConfidenceForms() throws {
+        for tokens in [["--min-confidence", "0.7"], ["--min-confidence=0.7"]] {
+            let result = try CommandLineParser.parse(
+                ["--context", "c", "Q", "--yes", "Yes", "--no", "No"] + tokens
+            )
+            #expect(
+                result
+                    == .run(
+                        Invocation(
+                            context: .text("c"),
+                            questions: [
+                                Question(
+                                    instructions: "Q",
+                                    kind: .verdict(yes: Option(id: "Yes"), no: Option(id: "No")),
+                                    minimumConfidence: 0.7
+                                )
+                            ]
+                        )
+                    )
+            )
+        }
+    }
+
+    @Test("--min-confidence works on a choice, a rating, and a verdict")
+    func minimumConfidenceOnEveryKind() throws {
+        let choice = try CommandLineParser.parse([
+            "--context", "c", "Q", "--option", "a", "--option", "b", "--min-confidence", "0.5",
+        ])
+        #expect(bars(choice) == [0.5])
+
+        let rating = try CommandLineParser.parse([
+            "--context", "c", "Q", "--level", "a", "--level", "b", "--min-confidence", "0.5",
+        ])
+        #expect(bars(rating) == [0.5])
+
+        let verdict = try CommandLineParser.parse([
+            "--context", "c", "Q", "--yes", "Yes", "--no", "No", "--min-confidence", "0.5",
+        ])
+        #expect(bars(verdict) == [0.5])
+    }
+
+    @Test("--min-confidence before the kind flags leaves the kind to them")
+    func minimumConfidenceBeforeKindFlags() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "c", "Q", "--min-confidence", "0.5", "--option", "a", "--option", "b",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .text("c"),
+                        questions: [
+                            Question(
+                                instructions: "Q",
+                                kind: .choice([Option(id: "a"), Option(id: "b")]),
+                                minimumConfidence: 0.5
+                            )
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("A question with no --min-confidence has no bar")
+    func noMinimumConfidence() throws {
+        let result = try CommandLineParser.parse(["--context", "c", "Q", "--option", "a"])
+        #expect(bars(result) == [nil])
+    }
+
+    @Test("0 and 1 are bars")
+    func minimumConfidenceEnds() throws {
+        let zero = try CommandLineParser.parse(["--context", "c", "Q", "--min-confidence", "0"])
+        #expect(bars(zero) == [0])
+
+        let one = try CommandLineParser.parse(["--context", "c", "Q", "--min-confidence", "1"])
+        #expect(bars(one) == [1])
+    }
+
+    @Test("A bar that is not a number from 0 to 1 is an error that quotes it")
+    func minimumConfidenceOffTheRange() {
+        for token in ["1.5", "-0.1", "abc", "nan", "inf", ""] {
+            let error = #expect(throws: UsageError.self) {
+                try CommandLineParser.parse(["--context", "c", "Q", "--min-confidence", token])
+            }
+            #expect(
+                error?.message == "--min-confidence needs a number from 0 to 1, got \"\(token)\""
+            )
+        }
+    }
+
+    @Test("A repeated --min-confidence is an error that names the question")
+    func repeatedMinimumConfidence() {
         let error = #expect(throws: UsageError.self) {
             try CommandLineParser.parse([
-                "--context", "c", "Q", "--yes", "Yes", "--no", "No",
-                "--min-confidence", "0.7",
+                "--context", "c", "Q", "--min-confidence", "0.5", "--min-confidence", "0.7",
             ])
         }
-        #expect(error?.message == "unknown flag: --min-confidence")
+        #expect(error?.message == "question 1 (\"Q\") repeats --min-confidence")
+    }
+
+    @Test("--min-confidence before any question is an error")
+    func minimumConfidenceBeforeQuestion() {
+        #expect(throws: UsageError("--min-confidence before any question")) {
+            try CommandLineParser.parse(["--context", "c", "--min-confidence", "0.5", "Q"])
+        }
+    }
+
+    @Test("--min-confidence as the last token needs a value")
+    func minimumConfidenceWithoutValue() {
+        #expect(throws: UsageError("--min-confidence needs a value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--min-confidence"])
+        }
+    }
+
+    /// The bar on every question a parse produced, in question order.
+    private func bars(_ result: ParseResult) -> [Double?] {
+        guard case .run(let invocation) = result else {
+            Issue.record("Expected a run, got \(result).")
+            return []
+        }
+        return invocation.questions.map(\.minimumConfidence)
     }
 
     /// One question with one option, for the tests that check the context.

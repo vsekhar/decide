@@ -71,7 +71,10 @@ public enum Runner {
     ///
     /// Throws `DecisionError.malformedResponse` when a question comes back
     /// with no answer, with an answer of the wrong kind, with a level index
-    /// off the scale, or with a probability outside 0 to 1.
+    /// off the scale, or with a probability or a reported confidence outside
+    /// 0 to 1. Throws `UnsureError` when a question with a bar gets an answer
+    /// below it. The bar compares against the same number `Outcome.confidence`
+    /// holds.
     public static func decide(
         _ questions: [Question],
         about context: String,
@@ -79,7 +82,7 @@ public enum Runner {
     ) async throws -> [Outcome] {
         let questionnaire = makeQuestionnaire(questions)
         let answers = try await session.decide(questionnaire, about: context)
-        return try questions.indices.map { index in
+        let outcomes: [Outcome] = try questions.indices.map { index in
             let id = identifier(at: index)
             guard let record = answers.records[id] else {
                 throw DecisionError.malformedResponse("The response holds no answer for \(id).")
@@ -89,6 +92,7 @@ public enum Runner {
                 guard case .choice(let reported, let probabilities, let confidence) = record else {
                     throw DecisionError.malformedResponse("The answer for \(id) is not a choice.")
                 }
+                try checkReported(confidence, for: id)
                 var filled = probabilities
                 for option in options where filled[option.id] == nil { filled[option.id] = 0 }
                 let full = AnswerRecord.choice(
@@ -120,6 +124,19 @@ public enum Runner {
                 )
             }
         }
+        let unsure = questions.indices.compactMap { index -> Unsure? in
+            guard let bar = questions[index].minimumConfidence,
+                  outcomes[index].confidence < bar
+            else { return nil }
+            return Unsure(
+                number: index + 1,
+                instructions: questions[index].instructions,
+                confidence: outcomes[index].confidence,
+                minimumConfidence: bar
+            )
+        }
+        guard unsure.isEmpty else { throw UnsureError(questions: unsure) }
+        return outcomes
     }
 
     /// Turns a rating record into an outcome against the question's levels.
@@ -138,6 +155,7 @@ public enum Runner {
         probabilities: [Int: Double],
         reportedConfidence: Double?
     ) throws -> Outcome {
+        try checkReported(reportedConfidence, for: questionID)
         for level in probabilities.keys.sorted() where !levels.indices.contains(level) {
             throw DecisionError.malformedResponse(
                 "The answer for \(questionID) names level \(level), "
@@ -167,6 +185,16 @@ public enum Runner {
             answer: levels[best].id,
             confidence: full.confidence,
             probabilities: byID
+        )
+    }
+
+    /// Rejects a reported confidence that is not finite or lies outside 0 to
+    /// 1, so a bar can trust the number. The library's formula never gives
+    /// one; only a provider can.
+    private static func checkReported(_ confidence: Double?, for questionID: String) throws {
+        guard let confidence, !(confidence.isFinite && (0...1).contains(confidence)) else { return }
+        throw DecisionError.malformedResponse(
+            "The answer for \(questionID) has confidence \(confidence), outside 0 to 1."
         )
     }
 

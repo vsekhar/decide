@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T21:06:37-04:00
-updated: 2026-09-20T22:35:51-04:00
+updated: 2026-09-20T23:59:31-04:00
 blocked-on:
   - eh3
   - h9x
@@ -76,3 +76,15 @@ Design record, 2026-09-20 session, written before implementation. Decisions: (1)
 _📝 Noted on 2026-09-20 22:35:51-04:00 @ git:8c90147+local_
 
 Addendum from wip/eh3's verification: Outcome.confidence is now the library's section 6.1 formula over the whole scale. Runner.decide fills every option or level the record leaves out at 0 before asking AnswerRecord.confidence, because the record alone infers the count from its own keys and would understate confidence when the provider omits a level (0.08 versus 0.54 in the probe). A reported confidence still wins. So --min-confidence gates on the whole-scale number; the xhd runner tests that compare against AnswerRecord.rating(...).confidence must build the record with all levels present, or pin literals (0.3462 for [0.15, 0.55, 0.30] on three levels, 0.4439 for a 0.7/0.3 choice among three options).
+
+---
+
+_📝 Noted on 2026-09-20 23:08:12-04:00 @ git:6e03947+local_
+
+Worker done; diff read in the main context. Shape: a private setMinimumConfidence(_:to:) in the parser checks no-question, repeat, then the number, and QuestionBuilder carries minimumConfidence into all three Question branches; Runner.decide keeps the outcome map and then collects Unsure records for every barred question below its bar, throwing UnsureError before returning; ExitCode.unsure = 2 with its arms in code(for:) and message(for:), and the message helper formats both numbers with %.2f; the usage text has the flag and the new exit-code line; UnsureError.swift is the brief's text. Worker also removed the h9x test that pinned --min-confidence as unknown, and proved the runner guard by mutation (10 issues over six tests with the throw removed). I reordered Examples/ticket.sh so the refund flags read --min-confidence 0.7, --yes Yes, --no No, the README's order. Tests 93 -> 110 in 5 suites, build clean with warnings as errors. Live by hand, two requests: Examples/ticket.sh exited 2 with nothing on stdout and one stderr line, 'Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.46, below the bar of 0.70', which is the acceptance criterion's unsure branch (the same ticket answered Yes without the bar under h9x, so P(yes) was about 0.73); swift test --filter DecideLive passed.
+
+---
+
+_📝 Noted on 2026-09-20 23:59:31-04:00 @ git:6e03947+local_
+
+Verifier: all five acceptance criteria hold; one should-fix and nine notes. Acted on: (1) Examples/ticket.sh dropped -e and so always exited 0 and wrote exit=N to stdout; it now captures decide's status, reports it on stderr, exits with it, and guards the cd; stub runs give rc 2 with empty stdout on an unsure answer and rc 0 with three lines otherwise. Its header now says the levels are the Leveling section's described ones. (2) New guard: a provider-reported confidence that is not finite or lies outside 0...1 is a malformedResponse, 'The answer for qN has confidence C, outside 0 to 1.', in both the choice and rating reads; without it a reported nan passed every bar. Two runner tests pin it and both fail with the guard removed (mutant proven). (3) Usage says 'The confidence an answer needs' per the record. (4) The parser's batch test and the script use the README's token order. (5) A run test covers the README combination offline: bar 0.7, refund P(yes) 0.87, three lines, exit 0. (6) Backticks on nil in a doc comment. Left as is and worth knowing: %.2f can print 'has confidence 0.70, below the bar of 0.70' for 0.699 (the record chose two decimals); Double(_:) also accepts hex floats, '+0.5', '.5', and '5e-1', all harmless; the bar means different things per kind, so a 0.7 bar needs P(yes) 0.85 on a verdict, sigma 0.3 on a three-level rating, and a top probability near 0.92 on a three-option choice, which the design chose over a P(top) reading; Examples/style.sh still uses the old set -eux and echo idiom. Final: 113 tests in 5 suites, build clean with warnings as errors, live suite green, ticket.sh live exit 2 with confidence 0.46 on the refund question. Summary: --min-confidence on any question, unsure exit 2 with one stderr line, no stdout.

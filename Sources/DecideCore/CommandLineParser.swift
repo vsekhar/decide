@@ -11,9 +11,10 @@ public enum CommandLineParser {
     ///
     /// A bare token starts a question. Each later `--option` or `--level`
     /// joins that question and sets its kind. A question with neither is a
-    /// yes/no question; `--yes` and `--no` set what it prints. `--help` or
-    /// `-h` anywhere returns `.help`. Anything the tool cannot run throws a
-    /// `UsageError` that names the problem.
+    /// yes/no question; `--yes` and `--no` set what it prints.
+    /// `--min-confidence` after a question sets the confidence its answer
+    /// needs. `--help` or `-h` anywhere returns `.help`. Anything the tool
+    /// cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         if arguments.contains(where: { $0 == "--help" || $0 == "-h" }) { return .help }
@@ -52,6 +53,13 @@ public enum CommandLineParser {
                 continue
             }
 
+            if let value = try flagValue(
+                of: "--min-confidence", token: token, arguments: arguments, index: &index
+            ) {
+                try setMinimumConfidence(value, to: &questions)
+                continue
+            }
+
             if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
 
             guard !token.isEmpty else { throw UsageError("question \(questions.count + 1) is empty") }
@@ -73,13 +81,15 @@ public enum CommandLineParser {
     /// One question as the parser builds it. `flag` is the first kind flag
     /// under it, and stays `nil` until one arrives. `yes` and `no` hold the
     /// two sides of a yes/no question in any order, so a repeat of either flag
-    /// is its own error.
+    /// is its own error. `minimumConfidence` is the bar `--min-confidence`
+    /// sets, on a question of any kind.
     private struct QuestionBuilder {
         let instructions: String
         var flag: KindFlag?
         var values: [Option] = []
         var yes: Option?
         var no: Option?
+        var minimumConfidence: Double?
 
         /// How a message names this question: its number and its text.
         func name(_ number: Int) -> String {
@@ -98,12 +108,20 @@ public enum CommandLineParser {
             }
             switch flag {
             case .option:
-                return Question(instructions: instructions, kind: .choice(values))
+                return Question(
+                    instructions: instructions,
+                    kind: .choice(values),
+                    minimumConfidence: minimumConfidence
+                )
             case .level:
                 guard values.count >= 2 else {
                     throw UsageError("\(name(number)) needs at least two --level")
                 }
-                return Question(instructions: instructions, kind: .rating(values))
+                return Question(
+                    instructions: instructions,
+                    kind: .rating(values),
+                    minimumConfidence: minimumConfidence
+                )
             case .yes, .no:
                 return try verdict(number: number)
             }
@@ -119,7 +137,9 @@ public enum CommandLineParser {
                 throw UsageError("\(name(number)) uses the same value for --yes and --no")
             }
             return Question(
-                instructions: instructions, kind: .verdict(yes: yesSide, no: noSide)
+                instructions: instructions,
+                kind: .verdict(yes: yesSide, no: noSide),
+                minimumConfidence: minimumConfidence
             )
         }
     }
@@ -205,6 +225,25 @@ public enum CommandLineParser {
             questions[last].no = parsed
         }
         if questions[last].flag == nil { questions[last].flag = flag }
+    }
+
+    /// Sets the confidence bar on the last question. Every kind takes the
+    /// flag, and each question takes it once. The value must be a number from
+    /// 0 to 1, so `nan` and `inf` are errors.
+    private static func setMinimumConfidence(
+        _ value: String,
+        to questions: inout [QuestionBuilder]
+    ) throws(UsageError) {
+        guard let last = questions.indices.last else {
+            throw UsageError("--min-confidence before any question")
+        }
+        guard questions[last].minimumConfidence == nil else {
+            throw UsageError("\(questions[last].name(last + 1)) repeats --min-confidence")
+        }
+        guard let bar = Double(value), bar.isFinite, (0...1).contains(bar) else {
+            throw UsageError("--min-confidence needs a number from 0 to 1, got \"\(value)\"")
+        }
+        questions[last].minimumConfidence = bar
     }
 
     /// Reads the value of a flag that takes one. Returns `nil` when the token

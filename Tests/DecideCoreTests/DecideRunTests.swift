@@ -23,31 +23,44 @@ struct DecideRunTests {
         "Should we issue a refund?",
         "--yes", "Yes", "--no", "No",
     ]
-    /// What the scripted model answers: `q1` is the team, `q2` the urgency,
-    /// and `q3` the refund.
-    private static let answers = Answers(
-        records: [
-            "q1": .choice(
-                reported: "returns",
-                probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03],
-                confidence: 0.91
-            ),
-            "q2": .rating(
-                score: 1.15,
-                probabilities: [0: 0.15, 1: 0.55, 2: 0.30],
-                confidence: 0.78
-            ),
-            "q3": .verdict(probability: 0.87),
-        ],
-        quality: .calibrated
-    )
+    /// The refund question with a bar after its two values.
+    private static func refundQuestion(bar: String) -> [String] {
+        refundQuestion + ["--min-confidence", bar]
+    }
 
-    /// A model that gives those answers and keeps the request it got.
+    /// What the scripted model answers: `q1` is the team, `q2` the urgency,
+    /// and `q3` the refund a test asks for.
+    private static func answers(refund: AnswerRecord) -> Answers {
+        Answers(
+            records: [
+                "q1": .choice(
+                    reported: "returns",
+                    probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03],
+                    confidence: 0.91
+                ),
+                "q2": .rating(
+                    score: 1.15,
+                    probabilities: [0: 0.15, 1: 0.55, 2: 0.30],
+                    confidence: 0.78
+                ),
+                "q3": refund,
+            ],
+            quality: .calibrated
+        )
+    }
+
+    /// A model that gives those answers and keeps the request it got. The
+    /// refund comes back at P(yes) 0.87, so its confidence is 0.74.
     private static func triageModel(recording box: RequestBox? = nil) -> ScriptedModel {
         ScriptedModel { request in
             box?.record(request)
-            return Self.answers
+            return Self.answers(refund: .verdict(probability: 0.87))
         }
+    }
+
+    /// A model whose refund answer is P(yes) 0.6, so its confidence is 0.2.
+    private static func unsureRefundModel() -> ScriptedModel {
+        ScriptedModel(answering: Self.answers(refund: .verdict(probability: 0.6)))
     }
 
     @Test("The batch example prints one answer per question, in order")
@@ -60,6 +73,70 @@ struct DecideRunTests {
                 + Self.urgencyQuestion + Self.refundQuestion,
             environment: [:],
             model: Self.triageModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\nsomewhat_urgent\nYes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("A refund below its bar prints nothing and exits 2")
+    func unsureBatch() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + Self.urgencyQuestion + Self.refundQuestion(bar: "0.7"),
+            environment: [:],
+            model: Self.unsureRefundModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out.isEmpty)
+        #expect(
+            err == """
+                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
+                below the bar of 0.70
+
+                """
+        )
+    }
+
+    @Test("The README batch example passes its own bar when the model is sure")
+    func batchAtTheReadmeBar() async {
+        var out = ""
+        var err = ""
+
+        // The scripted refund answer is P(yes) 0.87, confidence 0.74.
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + Self.urgencyQuestion + Self.refundQuestion(bar: "0.7"),
+            environment: [:],
+            model: Self.triageModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\nsomewhat_urgent\nYes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("The same answers clear a lower bar and print three lines")
+    func batchUnderALowBar() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + Self.urgencyQuestion + Self.refundQuestion(bar: "0.1"),
+            environment: [:],
+            model: Self.unsureRefundModel(),
             stdout: &out,
             stderr: &err
         )

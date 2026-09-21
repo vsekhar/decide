@@ -3,11 +3,13 @@ import Foundation
 
 /// The README's exit codes and the one-line message for each error.
 ///
-/// 0 is a decision. 1 to 9 are reserved for outcomes of the question
-/// itself. Errors start at 10 and group by who has to act.
+/// 0 is a decision and 2 is unsure. 1 and 3 to 9 are reserved for outcomes
+/// of the question itself. Errors start at 10 and group by who has to act.
 public enum ExitCode {
     /// The run produced a decision.
     public static let decided: Int32 = 0
+    /// The model answered, but below the bar a question set.
+    public static let unsure: Int32 = 2
     /// Setup or input error: something local must change. Bad usage, a
     /// missing or malformed model or key, a rejected key, an unreadable
     /// file, or a question the model cannot take.
@@ -22,6 +24,8 @@ public enum ExitCode {
             setup
         case is ConfigurationError:
             setup
+        case is UnsureError:
+            unsure
         case let error as DecisionError:
             code(for: error)
         default:
@@ -37,6 +41,8 @@ public enum ExitCode {
         case let error as ConfigurationError:
             oneLine(message(for: error))
         case let error as DecisionError:
+            oneLine(message(for: error))
+        case let error as UnsureError:
             oneLine(message(for: error))
         case is CancellationError:
             "Error: the run was cancelled."
@@ -118,6 +124,16 @@ public enum ExitCode {
         @unknown default:
             "Error: the model failed: \(error)"
         }
+    }
+
+    /// Names every unsure question with its confidence and its bar.
+    private static func message(for error: UnsureError) -> String {
+        let clauses = error.questions.map { question in
+            "question \(question.number) (\"\(question.instructions)\") "
+                + "has confidence \(String(format: "%.2f", question.confidence)), "
+                + "below the bar of \(String(format: "%.2f", question.minimumConfidence))"
+        }
+        return "Error: unsure: " + clauses.joined(separator: "; ")
     }
 
     private static func message(for reason: DecisionModelAvailability.Reason) -> String {
