@@ -1,0 +1,22 @@
+#!/bin/sh
+# Runs the decide binary from this checkout.
+#
+# Examples call this instead of `swift run decide`, which expands an argument
+# that starts with @ as a response file before decide sees it. The model and
+# key come from ../.env when that file exists. Nothing is built here: build
+# first, so the examples start at once.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+bin="$root/.build/debug/decide"
+
+if [ ! -x "$bin" ]; then
+    echo "Error: no decide binary at $bin. Run: swift build --package-path \"$root\"" >&2
+    exit 2
+fi
+
+if [ -f "$root/.env" ]; then
+    set -a
+    . "$root/.env"
+    set +a
+fi
+exec "$bin" "$@"
