@@ -1,0 +1,123 @@
+name: CI
+
+# A push runs both jobs in full: the offline tests, the DecideLive suite,
+# and the coverage upload. A pull request from a branch of this repository
+# ran on its push already, so pull requests start the jobs only from a
+# fork. Forks get no secrets, so those runs skip DecideLive and the upload.
+#
+# DecideLive is on every push because it is the one test that talks to the
+# real service. Each job that runs it spends one request.
+#
+# Nothing else builds this package on Linux, so the Linux job is that
+# check. TESTING.md says how to reproduce each job.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Name the Xcode to build with. The runner image's default can move;
+  # this does not.
+  XCODE_APP: /Applications/Xcode_26.6.app
+
+jobs:
+  macos:
+    name: macOS tests
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        run: sudo xcode-select -s "$XCODE_APP"
+
+      # Most of a cold build is swift-syntax, which the library's macro
+      # target pulls in from source. The key names the toolchain and the
+      # coverage flag, because either one changes every object file.
+      - name: Cache the build
+        uses: actions/cache@v6
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ runner.arch }}-xcode26.6-coverage-${{ hashFiles('Package.resolved') }}
+
+      # All suites go in one swift test call: a second run with coverage on
+      # would wipe the first run's profile data. On a pull request there is
+      # no key, so the run skips DecideLive by name; left to itself, that
+      # suite fails rather than skips. DECIDE_MODEL is a model name and
+      # needs no secret. With no DECIDE_MODEL_API_KEY set, the tool falls
+      # back to TYPESAFE_API_KEY.
+      - name: Tests
+        env:
+          DECIDE_MODEL: typesafe:jev-latest
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          SKIP_LIVE: ${{ github.event_name == 'pull_request' }}
+        run: |
+          skip=()
+          if [ "$SKIP_LIVE" = "true" ]; then skip+=(--skip DecideLive); fi
+          swift test -Xswiftc -warnings-as-errors --enable-code-coverage "${skip[@]}"
+
+      # Restrict the report to the Sources folder. Without that, llvm-cov
+      # would count the tests, the library, swift-syntax, and the generated
+      # test runner too.
+      - name: Export coverage
+        if: github.event_name != 'pull_request'
+        run: |
+          bin=$(swift build --show-bin-path)
+          xcrun llvm-cov export -format=lcov \
+            -instr-profile "$bin/codecov/default.profdata" \
+            "$bin/decidePackageTests.xctest/Contents/MacOS/decidePackageTests" \
+            "$PWD/Sources" \
+            > coverage.lcov
+
+      - name: Upload coverage
+        if: github.event_name != 'pull_request'
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.lcov
+          disable_search: true
+          fail_ci_if_error: true
+
+  linux:
+    name: Linux tests
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    # Xcode 26.6 ships Swift 6.3.3, and this image has the same compiler,
+    # so a difference between the two jobs is a platform difference and
+    # not a compiler one. The tag fixes the patch level and the OS.
+    container: swift:6.3.3-noble
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Same reason as on macOS: swift-syntax. No coverage flag here,
+      # because this job makes no report.
+      - name: Cache the build
+        uses: actions/cache@v6
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ runner.arch }}-swift6.3.3-${{ hashFiles('Package.resolved') }}
+
+      # DecideLive runs here too. On Linux, URLSession comes from
+      # FoundationNetworking, and this is the one place that code meets
+      # the real service. Steps in a container default to sh, and the
+      # skip array below needs bash.
+      - name: Tests
+        shell: bash
+        env:
+          DECIDE_MODEL: typesafe:jev-latest
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          SKIP_LIVE: ${{ github.event_name == 'pull_request' }}
+        run: |
+          skip=()
+          if [ "$SKIP_LIVE" = "true" ]; then skip+=(--skip DecideLive); fi
+          swift test -Xswiftc -warnings-as-errors "${skip[@]}"

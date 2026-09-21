@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T21:27:42-04:00
-updated: 2026-09-20T21:27:42-04:00
+updated: 2026-09-20T21:50:00-04:00
 ---
 
 # Add GitHub Actions CI: macOS and Linux tests, live suite on push, coverage
@@ -68,3 +68,21 @@ wip/v7x holds the skeleton this checks; wip/ayd the live suite's design. No bloc
 - [ ] The README shows both badges and the CI badge reads passing after the first green run on `main`.
 - [ ] TESTING.md's new section lets a new contributor reproduce the macOS step and the Linux run without reading the workflow.
 - [ ] A pull request from a fork would run without secrets: the workflow's skip rule is keyed on `github.event_name`, as the library's is (a real fork cannot be tested from this repo; check the expression).
+
+---
+
+_📝 Noted on 2026-09-20 21:39:42-04:00 @ git:a0cb374+local_
+
+Design record. Implemented directly in the main context, no worker: the yml body mirrors ../DecisionModels/.github/workflows/ci.yml and the rest is prose, so a brief would have held the whole change. Decisions: (1) DECIDE_MODEL sits in each Tests step's env, not top-level, per the issue; TYPESAFE_API_KEY comes from the secret and no DECIDE_MODEL_API_KEY is set, which works because ModelConfiguration.makeModel passes a nil key and Jev then reads TYPESAFE_API_KEY itself. (2) Both jobs run the live suite on push, so a push costs two Jev requests. (3) The skip rule is SKIP_LIVE=${{ github.event_name == 'pull_request' }} plus a bash array, as the library does; an empty array expands cleanly under /bin/bash 3.2 without set -u, checked locally. (4) The macOS job's default shell is bash; the container job names bash because sh has no arrays. (5) TESTING.md gets one 'Continuous integration' section with the Docker commands at its end, not a separate Linux section, per the issue; the Docker live command passes DECIDE_MODEL and DECIDE_MODEL_API_KEY, matching the .env the file documents. Facts found: all three secrets (TYPESAFE_API_KEY, OPENROUTER_API_KEY, CODECOV_TOKEN) were already set on vsekhar/decide before this work, so the owner's manual steps are done. Docker is not installed on this Mac, so nothing has run the Linux job locally; the first push is the first Linux build. The 0.1.0 tag is annotated; its commit e115b352 matches Package.resolved and the library's CI is green on it, macOS and Linux. Local reproduction of the macOS step uses the CI-shaped env: .env sourced, then env -u DECIDE_MODEL_API_KEY -u OPENROUTER_API_KEY DECIDE_MODEL=typesafe:jev-latest swift test -Xswiftc -warnings-as-errors --enable-code-coverage. Dead code: the change adds no symbols, only a workflow and prose.
+
+---
+
+_📝 Noted on 2026-09-20 21:40:20-04:00 @ git:a0cb374+local_
+
+Local check of the macOS step, CI-shaped env (no DECIDE_MODEL_API_KEY, no OPENROUTER_API_KEY, DECIDE_MODEL=typesafe:jev-latest, TYPESAFE_API_KEY from .env): swift test -Xswiftc -warnings-as-errors --enable-code-coverage passed, 56 tests in 6 suites, DecideLive included, zero warnings, none of the library's 'LLVM Profile Error' lines locally. The export command wrote a coverage.lcov whose SF: lines name only the eight files under Sources/DecideCore; Sources/decide/DecideCommand.swift is absent because the tests do not link the executable, so TESTING.md says the report covers DecideCore. Lines 97.35 percent, StandardStreams.swift 0 percent (the run tests inject String streams). Removed the local coverage.lcov; neither repo ignores it.
+
+---
+
+_📝 Noted on 2026-09-20 21:50:00-04:00 @ git:a0cb374+local_
+
+Verifier report: all five acceptance criteria hold for everything checkable without a push. One should-fix and four notes, all fixed: (1) TESTING.md's 'gh secret set --body "$TYPESAFE_API_KEY"' sentence contradicted the documented .env shape, which has DECIDE_MODEL_API_KEY and no TYPESAFE_API_KEY, so a contributor could store an empty secret; dropped the sentence, kept the prompting form. (2) ci.yml comments were largely the library's words where the issue asked for fresh prose; rewrote every comment, and a diff with comments stripped shows the body unchanged. (3) The Linux UTF-8 note claimed the read may not throw on Linux; swift-foundation shares one implementation that throws on both, so TESTING.md now says the error's code and message may differ and that no test covers a corrupt file on either platform. (4) Linked the library's TESTING.md by URL, since a contributor has no local copy. (5) Added coverage.lcov to .gitignore, since the documented export writes it to the package root. Verifier also confirmed: the if: expressions match the library's byte for byte; the library's identical runner and container labels ran green on tag 0.1.0 today; Jev reads TYPESAFE_API_KEY itself when the tool passes a nil key; two Foundation calls not in the issue's list, trimmingCharacters(in:) and Data(string.utf8), exist in corelibs; Synchronization is cross-platform; no Darwin-only import. Still unverified, needs a push: the two jobs passing on GitHub, the Linux build itself, the Codecov upload, and the badges turning green. Summary: added .github/workflows/ci.yml, two README badges, a Continuous integration section in TESTING.md, and a .gitignore line.
