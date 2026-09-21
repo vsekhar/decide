@@ -49,12 +49,18 @@ struct DecideRunTests {
         )
     }
 
-    /// A model that gives those answers and keeps the request it got. The
-    /// refund comes back at P(yes) 0.87, so its confidence is 0.74.
+    /// A model that gives those answers for the questions the request asks,
+    /// as a provider would, and keeps the request it got. The refund comes
+    /// back at P(yes) 0.87, so its confidence is 0.74.
     private static func triageModel(recording box: RequestBox? = nil) -> ScriptedModel {
         ScriptedModel { request in
             box?.record(request)
-            return Self.answers(refund: .verdict(probability: 0.87))
+            let all = Self.answers(refund: .verdict(probability: 0.87))
+            let asked = Set(request.questionnaire.specs.map(\.id))
+            return Answers(
+                records: all.records.filter { asked.contains($0.key) },
+                quality: all.quality
+            )
         }
     }
 

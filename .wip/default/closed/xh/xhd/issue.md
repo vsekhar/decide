@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T21:06:37-04:00
-updated: 2026-09-21T00:38:35-04:00
+updated: 2026-09-21T02:02:57-04:00
 blocked-on:
   - eh3
   - h9x
@@ -94,3 +94,9 @@ Verifier: all five acceptance criteria hold; one should-fix and nine notes. Acte
 _📝 Noted on 2026-09-21 00:38:35-04:00 @ git:00bc1ae_
 
 Follow-up filed in the library: DecisionModels wip/3qq, 'Resolve questionnaire answers against their specs so AnswerRecord.confidence is exact'. When it ships and the pin moves past 0.1.0, the fill and the reported-confidence guard in Runner.decide can go; keep the three pinned-number tests and the two guard tests as the regression check.
+
+---
+
+_📝 Noted on 2026-09-21 02:02:57-04:00 @ git:c748dd4+local_
+
+DecisionModels 0.2.0 landed the resolve step (its wip/3qq). Package.swift now pins from 0.2.0 and Package.resolved holds d5a4914. Removed from Runner.decide: the fill of absent options and levels, checkReported, the level-index check, and the verdict probability guard; the library does all four before the tool sees a record, and also rejects a record for a question that was not asked. Kept: the missing-answer check (the library lets an absent record through) and the guard-case unpacks, whose wrong-kind throws are now unreachable through a session. The nine runner tests that pinned the tool's wordings now pin the library's, surfaced unchanged, for example 'Question q1 expects a choice, but the record holds a rating.' and 'Question q2 has no level at index 3.'; the level-off-scale fixture's score moved onto the scale so the index check is the one that fires. The run tests' scripted model now answers only the questions the request asks, since 0.2.0 rejects extras. The three pinned confidence numbers still hold with the library filling. 113 offline tests and the live suite pass; build clean with warnings as errors.

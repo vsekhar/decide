@@ -65,16 +65,16 @@ public enum Runner {
     /// Sends every question in one request and returns the answers in question
     /// order.
     ///
-    /// Confidence is the library's number over the whole scale. The read fills
-    /// in every option or level the record leaves out at 0 before asking,
-    /// because the record alone cannot know how many there are.
+    /// The library checks each record against its question before the tool
+    /// sees it: the kind matches, every index and probability is on the
+    /// scale, a reported confidence lies in 0 to 1, and every option or level
+    /// the provider left out is present at 0. So `Outcome.confidence` is the
+    /// section 6.1 number over the whole scale.
     ///
     /// Throws `DecisionError.malformedResponse` when a question comes back
-    /// with no answer, with an answer of the wrong kind, with a level index
-    /// off the scale, or with a probability or a reported confidence outside
-    /// 0 to 1. Throws `UnsureError` when a question with a bar gets an answer
-    /// below it. The bar compares against the same number `Outcome.confidence`
-    /// holds.
+    /// with no answer, or when the library rejects a record. Throws
+    /// `UnsureError` when a question with a bar gets an answer below it. The
+    /// bar compares against the same number `Outcome.confidence` holds.
     public static func decide(
         _ questions: [Question],
         about context: String,
@@ -87,39 +87,34 @@ public enum Runner {
             guard let record = answers.records[id] else {
                 throw DecisionError.malformedResponse("The response holds no answer for \(id).")
             }
+            // The library has matched each record's kind to its question, so
+            // these guards only unpack the record.
             switch questions[index].kind {
-            case .choice(let options):
-                guard case .choice(let reported, let probabilities, let confidence) = record else {
+            case .choice:
+                guard case .choice(let reported, let probabilities, _) = record else {
                     throw DecisionError.malformedResponse("The answer for \(id) is not a choice.")
                 }
-                try checkReported(confidence, for: id)
-                var filled = probabilities
-                for option in options where filled[option.id] == nil { filled[option.id] = 0 }
-                let full = AnswerRecord.choice(
-                    reported: reported, probabilities: filled, confidence: confidence
-                )
                 return Outcome(
                     questionID: id,
                     answer: reported,
-                    confidence: full.confidence,
-                    probabilities: filled
+                    confidence: record.confidence,
+                    probabilities: probabilities
                 )
             case .rating(let levels):
-                guard case .rating(let score, let probabilities, let confidence) = record else {
+                guard case .rating(_, let probabilities, _) = record else {
                     throw DecisionError.malformedResponse("The answer for \(id) is not a rating.")
                 }
-                return try ratingOutcome(
+                return ratingOutcome(
                     questionID: id,
                     levels: levels,
-                    score: score,
                     probabilities: probabilities,
-                    reportedConfidence: confidence
+                    confidence: record.confidence
                 )
             case .verdict(let yes, let no):
                 guard case .verdict(let probability) = record else {
                     throw DecisionError.malformedResponse("The answer for \(id) is not a verdict.")
                 }
-                return try verdictOutcome(
+                return verdictOutcome(
                     questionID: id, yes: yes, no: no, probability: probability
                 )
             }
@@ -142,32 +137,19 @@ public enum Runner {
     /// Turns a rating record into an outcome against the question's levels.
     ///
     /// The answer is the id of the most likely level, and a tie goes to the
-    /// lower one. The outcome's probabilities are keyed by level id, with a
-    /// level the record leaves out at 0. The confidence is the reported one,
-    /// or the library's formula over all the levels. The score plays no part.
-    ///
-    /// Throws `DecisionError.malformedResponse` when the record names a level
-    /// the question does not have.
+    /// lower one. The outcome's probabilities are keyed by level id. The
+    /// library has already put every index on the scale and every level in
+    /// the record, so the confidence it computed is exact.
     private static func ratingOutcome(
         questionID: String,
         levels: [Option],
-        score: Double,
         probabilities: [Int: Double],
-        reportedConfidence: Double?
-    ) throws -> Outcome {
-        try checkReported(reportedConfidence, for: questionID)
-        for level in probabilities.keys.sorted() where !levels.indices.contains(level) {
-            throw DecisionError.malformedResponse(
-                "The answer for \(questionID) names level \(level), "
-                    + "but the question has \(levels.count) levels."
-            )
-        }
-        var filled = probabilities
-        for level in levels.indices where filled[level] == nil { filled[level] = 0 }
+        confidence: Double
+    ) -> Outcome {
         var best = 0
         var bestProbability = -Double.infinity
         for level in levels.indices {
-            let probability = filled[level] ?? 0
+            let probability = probabilities[level] ?? 0
             if probability > bestProbability {
                 best = level
                 bestProbability = probability
@@ -175,49 +157,28 @@ public enum Runner {
         }
         var byID: [String: Double] = [:]
         for (level, option) in levels.enumerated() {
-            byID[option.id] = filled[level] ?? 0
+            byID[option.id] = probabilities[level] ?? 0
         }
-        let full = AnswerRecord.rating(
-            score: score, probabilities: filled, confidence: reportedConfidence
-        )
         return Outcome(
             questionID: questionID,
             answer: levels[best].id,
-            confidence: full.confidence,
+            confidence: confidence,
             probabilities: byID
-        )
-    }
-
-    /// Rejects a reported confidence that is not finite or lies outside 0 to
-    /// 1, so a bar can trust the number. The library's formula never gives
-    /// one; only a provider can.
-    private static func checkReported(_ confidence: Double?, for questionID: String) throws {
-        guard let confidence, !(confidence.isFinite && (0...1).contains(confidence)) else { return }
-        throw DecisionError.malformedResponse(
-            "The answer for \(questionID) has confidence \(confidence), outside 0 to 1."
         )
     }
 
     /// Turns a verdict probability into an outcome against the question's two
     /// sides.
     ///
-    /// The probability is P(yes). The answer is the yes value when it reaches
-    /// 0.5, else the no value. The confidence is the library's number; the
-    /// record already covers both sides, so there is nothing to fill in.
-    ///
-    /// Throws `DecisionError.malformedResponse` when the probability is not
-    /// finite or lies outside 0 to 1.
+    /// The probability is P(yes), which the library has already kept in 0 to
+    /// 1. The answer is the yes value when it reaches 0.5, else the no value.
+    /// The confidence is the library's number.
     private static func verdictOutcome(
         questionID: String,
         yes: Option,
         no: Option,
         probability: Double
-    ) throws -> Outcome {
-        guard probability.isFinite, (0...1).contains(probability) else {
-            throw DecisionError.malformedResponse(
-                "The answer for \(questionID) has probability \(probability), outside 0 to 1."
-            )
-        }
+    ) -> Outcome {
         let full = AnswerRecord.verdict(probability: probability)
         // Two assignments, not a literal: a literal traps on a repeated key,
         // and the parser's guard against one value for both sides should not

@@ -234,7 +234,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q3 has probability 1.2, outside 0 to 1.")
+        #expect(message == "Question q3 has a probability outside 0...1.")
     }
 
     @Test("A choice under a verdict question is a malformed response")
@@ -260,7 +260,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q3 is not a verdict.")
+        #expect(message == "Question q3 expects a verdict, but the record holds a choice.")
     }
 
     @Test("A record that reports no confidence takes the library's number")
@@ -281,8 +281,9 @@ struct RunnerTests {
 
     @Test("A level the record leaves out still counts in the confidence")
     func omittedLevelConfidence() async throws {
-        // Two of three levels. The library alone would read this as a
-        // two-level scale and give 0.08; over all three levels it is 0.54.
+        // Two of three levels. A raw record would read as a two-level scale
+        // and give 0.08; the library fills the third level in, so 0.54
+        // reaches the tool.
         let record = AnswerRecord.rating(score: 0.3, probabilities: [0: 0.7, 1: 0.3], confidence: nil)
         let session = DecisionSession(model: ScriptedModel(answering: Self.answers(urgency: record)))
 
@@ -295,8 +296,9 @@ struct RunnerTests {
 
     @Test("An option the record leaves out still counts in the confidence")
     func omittedOptionConfidence() async throws {
-        // Two of three options. Entropy 0.6109 over ln 3 gives 0.44; over
-        // ln 2, which the record alone implies, it would give 0.12.
+        // Two of three options. Entropy 0.6109 over ln 3 gives 0.44; a raw
+        // record would imply ln 2 and give 0.12. The library fills the third
+        // option in.
         let answers = Answers(
             records: [
                 "q1": .choice(
@@ -331,7 +333,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q2 is not a rating.")
+        #expect(message == "Question q2 expects a rating, but the record holds a verdict.")
     }
 
     @Test("A reported confidence that is not a number is a malformed response")
@@ -349,7 +351,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q1 has confidence nan, outside 0 to 1.")
+        #expect(message == "Question q1 reports a confidence outside 0...1.")
     }
 
     @Test("A reported confidence above 1 is a malformed response")
@@ -367,7 +369,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q2 has confidence 1.5, outside 0 to 1.")
+        #expect(message == "Question q2 reports a confidence outside 0...1.")
     }
 
     @Test("A rating under a choice question is a malformed response")
@@ -390,7 +392,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q1 is not a choice.")
+        #expect(message == "Question q1 expects a choice, but the record holds a rating.")
     }
 
     @Test("A tie between levels goes to the lower one")
@@ -437,7 +439,7 @@ struct RunnerTests {
         let session = DecisionSession(
             model: ScriptedModel(
                 answering: Self.answers(
-                    urgency: .rating(score: 3.0, probabilities: [2: 0.4, 3: 0.6], confidence: 0.6)
+                    urgency: .rating(score: 2.0, probabilities: [2: 0.4, 3: 0.6], confidence: 0.6)
                 )
             )
         )
@@ -450,9 +452,11 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q2 names level 3, but the question has 3 levels.")
+        #expect(message == "Question q2 has no level at index 3.")
     }
 
+    // The library checks each record against its question before the runner
+    // sees it, so the messages below are the library's, surfaced unchanged.
     @Test("A missing answer is a malformed response")
     func missingAnswer() async {
         let answers = Answers(
@@ -498,7 +502,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q1 is not a choice.")
+        #expect(message == "Question q1 expects a choice, but the record holds a verdict.")
     }
 
     @Test("A choice below its bar is unsure, and one above it is not")
@@ -711,7 +715,7 @@ struct RunnerTests {
             Issue.record("Expected a malformed response, got \(String(describing: error)).")
             return
         }
-        #expect(message == "The answer for q2 is not a rating.")
+        #expect(message == "Question q2 expects a rating, but the record holds a choice.")
     }
 }
 

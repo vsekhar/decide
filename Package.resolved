@@ -1,13 +1,13 @@
 {
-  "originHash" : "fe55942376ffda3280df3a3ca75d2fcef8e0a04e3a80131516208e861b89fc84",
+  "originHash" : "82f12faa020cb70e2d0b6bc590945f8fe7e95321e7bdec2d45fd241dc553ce69",
   "pins" : [
     {
       "identity" : "decisionmodels",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vsekhar/DecisionModels.git",
       "state" : {
-        "revision" : "e115b352ef23b670af2e8b7ba81f8221f092f0df",
-        "version" : "0.1.0"
+        "revision" : "d5a4914184c41d70a7948049d0b78915cc1bbd6f",
+        "version" : "0.2.0"
       }
     },
     {
