@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-20T20:33:48-04:00
-updated: 2026-09-20T21:06:37-04:00
+updated: 2026-09-20T22:58:40-04:00
 ---
 
 # Leveling and yes/no questions in the skeleton
@@ -43,3 +43,9 @@ Each child adds parser, runner, and run-level tests with `ScriptedModel`. The on
 | h9x | Add --yes and --no; a bare question is a verdict | eh3 |
 
 Start with wip/eh3; it carries the `Question.Kind` change the other builds on. wip/xhd follows both.
+
+---
+
+_📝 Noted on 2026-09-20 22:58:40-04:00 @ git:4edb41b+local_
+
+Both children shipped: wip/eh3 (8c90147) and wip/h9x (the commit after it). The parent's scope holds: the README's Leveling, Yes or no, and Batch questions examples run on one context without --min-confidence and print one answer per line, checked by hand against the real model; three kinds mix in one batch and one request; Question.kind is the three-case enum; a level reuses Option; a bare yes or no value sends no criterion; confidence is the library's number, computed over the whole scale (a decision added under eh3); exit codes are unchanged by this feature (fjj renumbered them separately). Out of scope stays out: --min-confidence is wip/xhd, in progress now; --exit, --fallback, --json, named contexts, and README changes were not touched. Closing.
