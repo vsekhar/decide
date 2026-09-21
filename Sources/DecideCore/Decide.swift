@@ -5,16 +5,19 @@ import Foundation
 public enum Decide {
     /// The text `--help` prints.
     public static let usage = """
-        Usage: decide --context <text> "<question>" --option <id>... ["<question>" --option <id>...]...
+        Usage: decide --context <text> "<question>" (--option <id>... | --level <id>...) ["<question>" ...]...
 
         Ask a decision model one or more questions about one context. The answer
-        to each question, the id of the chosen option, prints on its own line.
+        to each question, the id of the chosen option or level, prints on its own
+        line.
 
           --context <text>       The text to judge.
           --context @<path>      Read the text from a file.
-          "<question>"           A question. Each --option after it belongs to it.
-          --option <id>          An option the model can choose.
+          "<question>"           A question. Each --option or --level after it belongs to it.
+          --option <id>          An option the model can choose. The question is a choice.
           --option <id>=<text>   An option with a description.
+          --level <id>           A level on a scale, low to high. The question is a rating.
+          --level <id>=<text>    A level with a description.
           --help, -h             Print this text.
 
         Environment:

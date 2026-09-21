@@ -9,15 +9,16 @@ public enum ParseResult: Equatable, Sendable {
 public enum CommandLineParser {
     /// Parses the arguments.
     ///
-    /// A bare token starts a question. Each later `--option` joins that
-    /// question. `--help` or `-h` anywhere returns `.help`. Anything the tool
-    /// cannot run throws a `UsageError` that names the problem.
+    /// A bare token starts a question. Each later `--option` or `--level`
+    /// joins that question and sets its kind. `--help` or `-h` anywhere
+    /// returns `.help`. Anything the tool cannot run throws a `UsageError`
+    /// that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         if arguments.contains(where: { $0 == "--help" || $0 == "-h" }) { return .help }
 
         var context: ContextSource?
-        var questions: [Question] = []
+        var questions: [QuestionBuilder] = []
         var index = 0
 
         while index < arguments.count {
@@ -31,33 +32,110 @@ public enum CommandLineParser {
             }
 
             if let value = try flagValue(of: "--option", token: token, arguments: arguments, index: &index) {
-                guard !questions.isEmpty else { throw UsageError("--option before any question") }
-                let parsed = try option(from: value)
-                questions[questions.count - 1].options.append(parsed)
+                try add(value, as: .option, to: &questions)
+                continue
+            }
+
+            if let value = try flagValue(of: "--level", token: token, arguments: arguments, index: &index) {
+                try add(value, as: .level, to: &questions)
                 continue
             }
 
             if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
 
             guard !token.isEmpty else { throw UsageError("question \(questions.count + 1) is empty") }
-            questions.append(Question(instructions: token))
+            questions.append(QuestionBuilder(instructions: token))
         }
 
         guard let context else { throw UsageError("no --context given") }
         guard !questions.isEmpty else { throw UsageError("no question given") }
 
-        for (offset, question) in questions.enumerated() {
-            let name = "question \(offset + 1) (\"\(question.instructions)\")"
-            guard !question.options.isEmpty else { throw UsageError("\(name) has no --option") }
+        var finished: [Question] = []
+        for (offset, builder) in questions.enumerated() {
+            let question = try builder.question(number: offset + 1)
+            finished.append(question)
+        }
+
+        return .run(Invocation(context: context, questions: finished))
+    }
+
+    /// One question as the parser builds it. `flag` is the first kind flag
+    /// under it, and stays `nil` until one arrives.
+    private struct QuestionBuilder {
+        let instructions: String
+        var flag: KindFlag?
+        var values: [Option] = []
+
+        /// How a message names this question: its number and its text.
+        func name(_ number: Int) -> String {
+            "question \(number) (\"\(instructions)\")"
+        }
+
+        /// The finished question. Throws when its flags do not make one.
+        func question(number: Int) throws(UsageError) -> Question {
+            guard let flag else {
+                throw UsageError("\(name(number)) has no --option or --level")
+            }
             var seen: Set<String> = []
-            for option in question.options {
-                guard seen.insert(option.id).inserted else {
-                    throw UsageError("\(name) repeats the option \"\(option.id)\"")
+            for value in values {
+                guard seen.insert(value.id).inserted else {
+                    throw UsageError("\(name(number)) repeats the \(flag.noun) \"\(value.id)\"")
                 }
+            }
+            switch flag {
+            case .option:
+                return Question(instructions: instructions, kind: .choice(values))
+            case .level:
+                guard values.count >= 2 else {
+                    throw UsageError("\(name(number)) needs at least two --level")
+                }
+                return Question(instructions: instructions, kind: .rating(values))
+            }
+        }
+    }
+
+    /// The flag that fixes a question's kind. `--option` makes a choice and
+    /// `--level` makes a rating.
+    private enum KindFlag: String {
+        case option = "--option"
+        case level = "--level"
+
+        /// What the flag adds to a question, for a message about one value.
+        var noun: String {
+            switch self {
+            case .option: "option"
+            case .level: "level"
             }
         }
 
-        return .run(Invocation(context: context, questions: questions))
+        /// What a value with no id reports. The article differs, so the whole
+        /// sentence lives here.
+        var missingID: String {
+            switch self {
+            case .option: "an --option has no id"
+            case .level: "a --level has no id"
+            }
+        }
+    }
+
+    /// Adds an option or a level to the last question. The first kind flag
+    /// fixes the kind, so a flag of the other kind is an error.
+    private static func add(
+        _ value: String,
+        as flag: KindFlag,
+        to questions: inout [QuestionBuilder]
+    ) throws(UsageError) {
+        guard let last = questions.indices.last else {
+            throw UsageError("\(flag.rawValue) before any question")
+        }
+        if let existing = questions[last].flag, existing != flag {
+            throw UsageError(
+                "\(questions[last].name(last + 1)) mixes \(existing.rawValue) and \(flag.rawValue)"
+            )
+        }
+        let parsed = try option(from: value, as: flag)
+        questions[last].flag = flag
+        questions[last].values.append(parsed)
     }
 
     /// Reads the value of a flag that takes one. Returns `nil` when the token
@@ -88,15 +166,15 @@ public enum CommandLineParser {
         return .file(path)
     }
 
-    /// Reads an `--option` value. The first `=` splits the id from the
-    /// description. An empty description counts as none.
-    private static func option(from value: String) throws(UsageError) -> Option {
+    /// Reads an `--option` or `--level` value. The first `=` splits the id
+    /// from the description. An empty description counts as none.
+    private static func option(from value: String, as flag: KindFlag) throws(UsageError) -> Option {
         guard let separator = value.firstIndex(of: "=") else {
-            guard !value.isEmpty else { throw UsageError("an --option has no id") }
+            guard !value.isEmpty else { throw UsageError(flag.missingID) }
             return Option(id: value)
         }
         let id = String(value[value.startIndex..<separator])
-        guard !id.isEmpty else { throw UsageError("an --option has no id") }
+        guard !id.isEmpty else { throw UsageError(flag.missingID) }
         let description = String(value[value.index(after: separator)...])
         return Option(id: id, description: description.isEmpty ? nil : description)
     }

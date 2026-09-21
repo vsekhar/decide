@@ -21,11 +21,11 @@ struct CommandLineParserTests {
                         questions: [
                             Question(
                                 instructions: "Which team handles this ticket?",
-                                options: [
+                                kind: .choice([
                                     Option(id: "shipping"),
                                     Option(id: "billing"),
                                     Option(id: "returns"),
-                                ]
+                                ])
                             )
                         ]
                     )
@@ -33,7 +33,71 @@ struct CommandLineParserTests {
         )
     }
 
-    @Test("The batch example keeps each question's own options, in order")
+    @Test("The README leveling example parses to a rating")
+    func levelingExample() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "@ticket.txt",
+            "How urgent is this ticket?",
+            "--level", "not_urgent",
+            "--level", "somewhat_urgent",
+            "--level", "urgent",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .file("ticket.txt"),
+                        questions: [
+                            Question(
+                                instructions: "How urgent is this ticket?",
+                                kind: .rating([
+                                    Option(id: "not_urgent"),
+                                    Option(id: "somewhat_urgent"),
+                                    Option(id: "urgent"),
+                                ])
+                            )
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("The README leveling example with descriptions parses")
+    func describedLevelingExample() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "@ticket.txt",
+            "How urgent is this ticket?",
+            "--level", "not_urgent=Customer feedback or feature request",
+            "--level", "somewhat_urgent=Customer problem, but customer not blocked",
+            "--level", "urgent=Customer blocked",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .file("ticket.txt"),
+                        questions: [
+                            Question(
+                                instructions: "How urgent is this ticket?",
+                                kind: .rating([
+                                    Option(
+                                        id: "not_urgent",
+                                        description: "Customer feedback or feature request"
+                                    ),
+                                    Option(
+                                        id: "somewhat_urgent",
+                                        description: "Customer problem, but customer not blocked"
+                                    ),
+                                    Option(id: "urgent", description: "Customer blocked"),
+                                ])
+                            )
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("The batch example keeps each question's own kind and values, in order")
     func batchExample() throws {
         let result = try CommandLineParser.parse([
             "--context", "@ticket.txt",
@@ -42,9 +106,9 @@ struct CommandLineParserTests {
             "--option", "billing",
             "--option", "returns",
             "How urgent is this ticket?",
-            "--option", "not_urgent",
-            "--option", "somewhat_urgent",
-            "--option", "urgent",
+            "--level", "not_urgent",
+            "--level", "somewhat_urgent",
+            "--level", "urgent",
         ])
         #expect(
             result
@@ -54,19 +118,19 @@ struct CommandLineParserTests {
                         questions: [
                             Question(
                                 instructions: "Which team handles this ticket?",
-                                options: [
+                                kind: .choice([
                                     Option(id: "shipping"),
                                     Option(id: "billing"),
                                     Option(id: "returns"),
-                                ]
+                                ])
                             ),
                             Question(
                                 instructions: "How urgent is this ticket?",
-                                options: [
+                                kind: .rating([
                                     Option(id: "not_urgent"),
                                     Option(id: "somewhat_urgent"),
                                     Option(id: "urgent"),
-                                ]
+                                ])
                             ),
                         ]
                     )
@@ -122,6 +186,30 @@ struct CommandLineParserTests {
         #expect(result == .run(invocation(Option(id: "a", description: nil))))
     }
 
+    @Test("--level=id works too")
+    func levelEqualsForm() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "c", "Q", "--level=a", "--level=b=desc",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .text("c"),
+                        questions: [
+                            Question(
+                                instructions: "Q",
+                                kind: .rating([
+                                    Option(id: "a"),
+                                    Option(id: "b", description: "desc"),
+                                ])
+                            )
+                        ]
+                    )
+                )
+        )
+    }
+
     @Test("--help wins wherever it appears")
     func helpAnywhere() throws {
         #expect(try CommandLineParser.parse(["--help", "--context", "c"]) == .help)
@@ -173,12 +261,40 @@ struct CommandLineParserTests {
         }
     }
 
-    @Test("A question with no --option is an error that names it")
-    func questionWithoutOptions() {
+    @Test("--level before any question is an error")
+    func levelBeforeQuestion() {
+        #expect(throws: UsageError("--level before any question")) {
+            try CommandLineParser.parse(["--context", "c", "--level", "a", "Q"])
+        }
+    }
+
+    @Test("A question with no kind flag is an error that names it")
+    func questionWithoutKindFlag() {
         let error = #expect(throws: UsageError.self) {
             try CommandLineParser.parse(["--context", "c", "Q1", "--option", "a", "Q2"])
         }
-        #expect(error?.message == "question 2 (\"Q2\") has no --option")
+        #expect(error?.message == "question 2 (\"Q2\") has no --option or --level")
+    }
+
+    @Test("A question that mixes --option and --level is an error that names both flags")
+    func mixedKinds() {
+        let optionFirst = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--option", "a", "--level", "b"])
+        }
+        #expect(optionFirst?.message == "question 1 (\"Q\") mixes --option and --level")
+
+        let levelFirst = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--level", "a", "--option", "b"])
+        }
+        #expect(levelFirst?.message == "question 1 (\"Q\") mixes --level and --option")
+    }
+
+    @Test("A rating with one level is an error that names the question")
+    func oneLevel() {
+        let error = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q1", "--level", "a"])
+        }
+        #expect(error?.message == "question 1 (\"Q1\") needs at least two --level")
     }
 
     @Test("A repeated option id is an error that names the id")
@@ -187,6 +303,14 @@ struct CommandLineParserTests {
             try CommandLineParser.parse(["--context", "c", "Q1", "--option", "a", "--option", "a"])
         }
         #expect(error?.message == "question 1 (\"Q1\") repeats the option \"a\"")
+    }
+
+    @Test("A repeated level id is an error that names the id")
+    func duplicateLevelIDs() {
+        let error = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q1", "--level", "a", "--level", "a"])
+        }
+        #expect(error?.message == "question 1 (\"Q1\") repeats the level \"a\"")
     }
 
     @Test("An unknown flag is an error that names the token")
@@ -216,6 +340,29 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--level as the last token needs a value")
+    func levelWithoutValue() {
+        #expect(throws: UsageError("--level needs a value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--level"])
+        }
+    }
+
+    @Test("An empty level description counts as none")
+    func levelEmptyDescription() throws {
+        let result = try CommandLineParser.parse(["--context", "c", "Q", "--level", "a=", "--level", "b"])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .text("c"),
+                        questions: [
+                            Question(instructions: "Q", kind: .rating([Option(id: "a"), Option(id: "b")]))
+                        ]
+                    )
+                )
+        )
+    }
+
     @Test("An empty question token is an error that names its number")
     func emptyQuestion() {
         #expect(throws: UsageError("question 2 is empty")) {
@@ -233,11 +380,24 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("A --level with no id is an error")
+    func levelWithoutID() {
+        #expect(throws: UsageError("a --level has no id")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--level", ""])
+        }
+        #expect(throws: UsageError("a --level has no id")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--level", "=desc"])
+        }
+    }
+
     /// One question with one option, for the tests that check the context.
-    private let question = Question(instructions: "Q", options: [Option(id: "a")])
+    private let question = Question(instructions: "Q", kind: .choice([Option(id: "a")]))
 
     /// One question that holds `option`, for the tests that check an option.
     private func invocation(_ option: Option) -> Invocation {
-        Invocation(context: .text("c"), questions: [Question(instructions: "Q", options: [option])])
+        Invocation(
+            context: .text("c"),
+            questions: [Question(instructions: "Q", kind: .choice([option]))]
+        )
     }
 }

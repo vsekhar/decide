@@ -22,24 +22,36 @@ public enum ContextSource: Sendable, Equatable {
     case file(String)
 }
 
-/// One classification question and the options the model picks from.
+/// One question and the kind of answer it takes.
 public struct Question: Sendable, Equatable {
     /// What to judge, as the user typed it.
     public var instructions: String
-    /// The options, in command-line order.
-    public var options: [Option]
+    /// A choice from options or a rating on levels.
+    public var kind: Kind
 
-    public init(instructions: String, options: [Option] = []) {
+    public init(instructions: String, kind: Kind) {
         self.instructions = instructions
-        self.options = options
+        self.kind = kind
+    }
+
+    /// The kind of question. The flags after the question decide it:
+    /// `--option` makes a choice, `--level` makes a rating.
+    public enum Kind: Sendable, Equatable {
+        /// Pick one option. The answer is its id.
+        case choice([Option])
+        /// Place the context on an ordered scale, low to high. The answer is
+        /// the id of the most likely level.
+        case rating([Option])
     }
 }
 
-/// One answer the model can pick.
+/// One answer the model can pick: an option of a choice or a level of a
+/// rating. Both have an id and an optional description, so one struct serves
+/// both.
 public struct Option: Sendable, Equatable {
     /// The id the model reports and the tool prints.
     public var id: String
-    /// What the option covers, from `--option id=description`. `nil` when the
+    /// What the option or level covers, from `id=description`. `nil` when the
     /// user gave only the id.
     public var description: String?
 

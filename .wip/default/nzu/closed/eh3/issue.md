@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T20:34:00-04:00
-updated: 2026-09-20T21:06:37-04:00
+updated: 2026-09-20T22:34:03-04:00
 may-unblock:
   - h9x
   - xhd
@@ -66,3 +66,21 @@ Parent: wip/nzu. wip/h9x builds on the `Kind` enum this issue adds. wip/28j, wip
 - [ ] A batch with an `--option` question and a `--level` question prints one line per question, in order, from one request.
 - [ ] Mixed kinds on one question, fewer than two levels, and repeated level ids each exit 2 with a message that names the question.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean and `swift test --skip DecideLive` passes.
+
+---
+
+_📝 Noted on 2026-09-20 22:16:03-04:00 @ git:5efc7eb+local_
+
+Design record, 2026-09-20 session. Corrections to the issue text: usage errors now exit 10 (ExitCode.setup), not 2, since wip/fjj landed first; read 'exit 2' in the acceptance criteria as 10. Decisions that fix the implementation: (1) Question.init(instructions:kind:) with no default for kind; Question.options is gone with no alias. Kind is 'public enum Kind: Sendable, Equatable { case choice([Option]); case rating([Option]) }'. (2) Parser messages, exact: 'a --level has no id'; 'question N ("...") mixes --option and --level' with the question's existing kind flag named first and the offending flag second (so --level then --option reads 'mixes --level and --option'); 'question N ("...") has no --option or --level'; 'question N ("...") needs at least two --level'; 'question N ("...") repeats the level "x"'; '--level before any question'; '--level needs a value'. (3) Runner: rating spec is .rating(levels: levels.map { Criterion(/bin/zsh.description ?? /bin/zsh.id) }); the answer is the level whose index has the highest probability, scanning indices 0..<count with strict greater-than so ties go to the lower index and an all-absent record picks level 0; an index outside the range throws malformedResponse 'The answer for qN names level I, but the question has C levels.'; a non-rating record under a rating question throws 'The answer for qN is not a rating.'; probabilities keyed by level id, absent levels 0; confidence is record.confidence; the score field is unused. (4) Usage line becomes 'Usage: decide --context <text> "<question>" (--option <id>... | --level <id>...) ["<question>" ...]...'; paragraph says 'the id of the chosen option or level'; two --level lines beside the --option lines. (5) Examples/ticket.sh gains the README's described urgency levels as a second question in the same run. Implementation delegated to a worker; the brief holds the prose verbatim.
+
+---
+
+_📝 Noted on 2026-09-20 22:24:47-04:00 @ git:5efc7eb+local_
+
+Worker done; diff read in the main context. Shape: CommandLineParser keeps a private QuestionBuilder (instructions, first kind flag, values) and a private KindFlag enum (rawValue is the flag text, plus a noun for the repeat message and the has-no-id sentence); add(_:as:to:) applies the first-flag-fixes-kind rule and the mixed-kinds message before splitting the value; builder.question(number:) checks no-flag, then repeats, then the two-level minimum. Runner.makeQuestionnaire switches on kind inside the existing map; Runner.decide switches on the question's kind and a private ratingOutcome does the index check (ascending, first offender), the strict-greater scan from index 0, and the id-keyed probabilities. Tests 57 -> 70 in 5 suites, build clean with warnings as errors. Live check by hand: Examples/ticket.sh with the described levels printed 'returns' then 'urgent' and exited 0, one request; the issue guessed somewhat_urgent, but the ticket says the customer is stuck until the return clears, so 'urgent' is a fair reading and the criterion (one level id, exit 0) holds.
+
+---
+
+_📝 Noted on 2026-09-20 22:34:03-04:00 @ git:5efc7eb+local_
+
+Verifier: all four acceptance criteria hold, no blockers, no should-fixes, seven notes. Acted on: (1) design change, logged here as the record: the library's AnswerRecord.confidence infers the level count from the record (max index + 1) and the option count from the record's keys, so a record that leaves out a level or option understates confidence (probe: [0: 0.7, 1: 0.3] on a three-level scale gave 0.08 alone, 0.54 over all three). Runner.decide now fills every absent level or option with 0 before asking the library, so Outcome.confidence is the section 6.1 number over the whole scale, and Outcome.probabilities for a choice also carries absent options at 0. The reported confidence still wins when the provider gives one. This matters for wip/xhd, which gates on this number. (2) Tests pin the numbers: 0.3462 for the full three-level record with nil confidence, 0.5417 for the omitted-level case, 0.4439 for a two-of-three choice record; both omitted-case tests fail with the fill removed (mutant proven) and pass restored. (3) Added the two parser tests the note named (--level as the last token; --level a= counts as no description) and a rating-under-choice runner test. (4) Reworded three doc comments that used 'the walk' as a noun. Not acted on: levels[best] would trap on an empty level list, unreachable because the parser and the library's Preflight both refuse fewer than two levels; the library caps a rating at 10 levels with a clear message and no CLI test covers that. Live, by hand: the bare form 'How urgent is this ticket?' --level not_urgent --level somewhat_urgent --level urgent on Examples/ticket.txt printed somewhat_urgent and exited 0, so both README leveling commands are checked. Final: 75 tests in 5 suites, build clean with warnings as errors. Summary: --level questions parse as ratings, go on the wire as ordered criteria, and print the most likely level's id; confidence is computed over the whole scale.

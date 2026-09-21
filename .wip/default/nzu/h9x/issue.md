@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T20:34:09-04:00
-updated: 2026-09-20T21:06:48-04:00
+updated: 2026-09-20T22:17:38-04:00
 blocked-on:
   - eh3
 may-unblock:
@@ -70,3 +70,9 @@ Parent: wip/nzu. Blocked on wip/eh3. wip/xhd adds `--min-confidence` on top of t
 - [ ] `Examples/ticket.sh` runs three questions of three kinds and prints three lines from one request.
 - [ ] A repeated `--yes`, an empty value, and mixed kinds each exit 2 with a message that names the problem.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean, `swift test --skip DecideLive` passes, and `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-20 22:17:38-04:00 @ git:5efc7eb+local_
+
+Design record, 2026-09-20 session, written before implementation. Corrections to the issue text: usage errors exit 10 (ExitCode.setup), not 2, since wip/fjj landed. Decisions: (1) Question.Kind gains 'case verdict(yes: Option, no: Option)'; Option.id is the value to print, Option.description the criterion for that side. (2) Grammar: after the walk a question with no kind flag is .verdict(yes: Option(id: "yes"), no: Option(id: "no")); --yes and --no each may appear once per question; the first of --yes/--no on a bare question fixes its kind as verdict. Messages, exact: 'a --yes has no value' and 'a --no has no value' (article 'a', matching 'a --level has no id'); 'question N ("...") repeats --yes'; mixed kinds keep the wip/eh3 rule, existing kind flag first, so 'mixes --option and --yes', 'mixes --level and --no', 'mixes --yes and --option'; '--yes before any question'; '--yes needs a value'. New rule not in the issue: the same value for both sides would collapse the probabilities dictionary, so 'question N ("...") uses the same value for --yes and --no' is an error. (3) Runner: spec is .verdict(ifTrue: yes.description.map { Criterion($0) }, ifFalse: no.description.map { Criterion($0) }); a bare value sends nil. Read: a .verdict record is required, else 'The answer for qN is not a verdict.'; a probability that is not finite or is outside 0...1 throws malformedResponse 'The answer for qN has probability P, outside 0 to 1.'; the answer is yes.id when p >= 0.5, else no.id; probabilities [yes.id: p, no.id: 1 - p]; confidence record.confidence, which the library computes as abs(2p - 1). (4) Usage line: 'Usage: decide --context <text> "<question>" [--option <id>... | --level <id>... | --yes <value> --no <value>] ["<question>" ...]...'; paragraph gains 'A question with no --option or --level is a yes/no question; it prints yes or no, or the --yes and --no values.'; two new flag lines. (5) DecideLiveTests grows to the three-question batch, one request; Examples/ticket.sh gains the refund question with --yes Yes --no No.

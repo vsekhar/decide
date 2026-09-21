@@ -13,10 +13,10 @@ struct DecideRunTests {
         "Which team handles this ticket?",
         "--option", "shipping", "--option", "billing", "--option", "returns",
     ]
-    /// The urgency question, as options rather than levels.
+    /// The urgency question from the README, with its three levels.
     private static let urgencyQuestion = [
         "How urgent is this ticket?",
-        "--option", "not_urgent", "--option", "somewhat_urgent", "--option", "urgent",
+        "--level", "not_urgent", "--level", "somewhat_urgent", "--level", "urgent",
     ]
     /// What the scripted model answers: `q1` is the team, `q2` the urgency.
     private static let answers = Answers(
@@ -26,9 +26,9 @@ struct DecideRunTests {
                 probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03],
                 confidence: 0.91
             ),
-            "q2": .choice(
-                reported: "somewhat_urgent",
-                probabilities: ["not_urgent": 0.15, "somewhat_urgent": 0.55, "urgent": 0.30],
+            "q2": .rating(
+                score: 1.15,
+                probabilities: [0: 0.15, 1: 0.55, 2: 0.30],
                 confidence: 0.78
             ),
         ],
