@@ -70,11 +70,21 @@ Make a yes or no decision, with a custom confidence threshold and custom output 
 ```sh
 $ decide --context @ticket.txt \
          "Should we issue a refund?" \
-         --min-confidence=0.7 \ # anything less is a No
+         --min-confidence=0.7 \
          --yes "Hell yeah" \
          --no "Forget it"
 
 Hell yeah
+```
+
+Use exit codes to control a script using yes or no decisions:
+
+```sh
+if decide --context="$body" \
+          "Is this message spam?" \
+          --exit; then
+  mv "$file" spam/
+fi
 ```
 
 ### Composite context
@@ -90,17 +100,6 @@ $ decide --context ticket=@ticket.txt \
          --no "Forget it"
 
 Forget it
-```
-
-Use exit codes to control a script using yes or no decisions:
-
-```sh
-if decide --context="$body" \
-          "Is this message spam?" \
-          --min-confidence=0.7 \
-          --exit; then
-  mv "$file" spam/
-fi
 ```
 
 ### Batch questions
