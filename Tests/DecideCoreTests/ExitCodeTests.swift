@@ -70,6 +70,7 @@ struct ExitCodeTests {
     @Test("The constants are the README's numbers")
     func constants() {
         #expect(ExitCode.decided == 0)
+        #expect(ExitCode.no == 1)
         #expect(ExitCode.unsure == 2)
         #expect(ExitCode.setup == 10)
         #expect(ExitCode.remote == 11)
@@ -81,7 +82,7 @@ struct ExitCodeTests {
             let code = ExitCode.code(for: error)
             #expect(
                 code == 0 || code == 2 || code >= 10,
-                "1 and 3 to 9 are reserved for decision-like states: \(error)"
+                "1 is no, 2 is unsure, and 3 to 9 are reserved: \(error)"
             )
         }
     }

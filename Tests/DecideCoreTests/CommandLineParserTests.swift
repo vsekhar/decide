@@ -653,6 +653,57 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--quiet and -q each drop the printed answer")
+    func quietForms() throws {
+        for token in ["--quiet", "-q"] {
+            let result = try CommandLineParser.parse(["--context", "c", "Q", token])
+            #expect(
+                result
+                    == .run(
+                        verdict(yes: Option(id: "yes"), no: Option(id: "no"), quiet: true)
+                    )
+            )
+        }
+    }
+
+    @Test("--quiet works wherever it appears")
+    func quietAnywhere() throws {
+        let expected = ParseResult.run(
+            verdict(yes: Option(id: "Yes"), no: Option(id: "No"), quiet: true)
+        )
+        let question = ["Q", "--yes", "Yes", "--no", "No"]
+        #expect(try CommandLineParser.parse(["--quiet", "--context", "c"] + question) == expected)
+        #expect(try CommandLineParser.parse(["--context", "c", "--quiet"] + question) == expected)
+        #expect(try CommandLineParser.parse(["--context", "c"] + question + ["--quiet"]) == expected)
+    }
+
+    @Test("A second --quiet is an error")
+    func twoQuiets() {
+        #expect(throws: UsageError("--quiet was given twice")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--quiet", "-q"])
+        }
+    }
+
+    @Test("--quiet on anything but one yes/no question is an error")
+    func quietNeedsOneVerdict() {
+        let lines = [
+            ["--context", "c", "Q", "--option", "a", "--option", "b", "--quiet"],
+            ["--context", "c", "Q", "--level", "a", "--level", "b", "--quiet"],
+            ["--context", "c", "Q1", "--quiet", "Q2", "--option", "a"],
+        ]
+        for line in lines {
+            #expect(throws: UsageError("--quiet needs exactly one yes/no question"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("--option -q makes an option with that id and leaves the run loud")
+    func quietAsAnOptionValue() throws {
+        let result = try CommandLineParser.parse(["--context", "c", "Q", "--option", "-q"])
+        #expect(result == .run(invocation(Option(id: "-q"))))
+    }
+
     /// The bar on every question a parse produced, in question order.
     private func bars(_ result: ParseResult) -> [Double?] {
         guard case .run(let invocation) = result else {
@@ -674,10 +725,11 @@ struct CommandLineParserTests {
     }
 
     /// One yes/no question with those two sides, for the verdict tests.
-    private func verdict(yes: Option, no: Option) -> Invocation {
+    private func verdict(yes: Option, no: Option, quiet: Bool = false) -> Invocation {
         Invocation(
             context: .text("c"),
-            questions: [Question(instructions: "Q", kind: .verdict(yes: yes, no: no))]
+            questions: [Question(instructions: "Q", kind: .verdict(yes: yes, no: no))],
+            quiet: quiet
         )
     }
 }

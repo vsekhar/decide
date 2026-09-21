@@ -77,13 +77,23 @@ $ decide --context @ticket.txt \
 Hell yeah
 ```
 
-Use exit codes to control a script using yes or no decisions:
+Use exit codes to control a script using yes or no decisions. A single yes/no
+question answers with its exit code (0 for yes, 1 for no) as well as to stdout
+(`-q` drops the printed answer):
 
 ```sh
-if decide --context="$body" \
-          "Is this message spam?" \
-          --exit; then
+if decide --context="$body" "Is this message spam?" -q; then
   mv "$file" spam/
+fi
+```
+
+With this usage, exit 1 is a no, not a failure. Under `set -e`, capture the
+answer inside the `if`, which gives the value and the truth in one call, or
+add `|| true`:
+
+```sh
+if answer=$(decide --context="$body" "Is this message spam?" --yes spam --no ham); then
+  mv "$file" "$answer/"
 fi
 ```
 
@@ -164,7 +174,7 @@ Define safe paths for scripts:
 
 ```sh
 # Define safe path for a script
-if decide --context "$body" "Is this message spam?" --exit --fallback false; then
+if decide --context "$body" "Is this message spam?" -q --fallback false; then
   mv "$file" spam/     # never reached on an error
 fi
 ```
@@ -273,33 +283,33 @@ To build the tool or run its tests, see DEVELOPMENT.md and TESTING.md.
 
 ### Exit codes and errors
 
-Decisions are printed to stdout and the exit code reports errors:
+For a choice, a rating, or a batch, decisions are printed to stdout and the exit code reports errors:
 
 | Code | Decision |
 |---|---|
 | 0 | Decided: see stdout
 | 1 | Not used
-| 2 | Not decided: unsure (confidence below --min-confidence, no --fallback)
+| 2 | Unsure: confidence below --min-confidence, no --fallback
 | 3-9 | Reserved for decision-like states
 | 10 | Not run: setup or input error (bad usage, model or key missing, unreadable file)
 | 11 | Not decided: remote error (network, timeout, rate limit, model refused)
 
-When the `--exit` flag is used for scripting, the error code carries the decision and stdout is not used:
+When the run has one yes/no question, the exit code carries the answer as well:
 
 | Code | Decision |
 |---|---|
 | 0 | Decided: Yes
 | 1 | Decided: No
-| 2 | Not decided: unsure (confidence below --min-confidence, no --fallback)
+| 2 | Unsure: confidence below --min-confidence, no --fallback
 | 3-9 | Reserved for decision-like states
 | 10 | Not run: setup or input error (bad usage, model or key missing, unreadable file)
 | 11 | Not decided: remote error (network, timeout, rate limit, model refused)
 
-Only 0 and 1 carry an answer. A script that branches on `--exit` should put the action on the yes side,
+Only 0 and 1 carry an answer. A script that branches on the exit code should put the action on the yes side,
 or switch on `$?`.
 
 `--fallback` turns an unsure answer (exit code 2) and a remote error (exit code 11) into decisions (exit code 0) and prints
-the fallback value. With `--exit` it returns the code of the fallback's side, or the fallback exit code.
+the fallback value. With one yes/no question it returns the code of the fallback's side, or the fallback exit code.
 
 In a stream, 10 stops the run at once. 2 and 11 are per event: the event
 gets an error line or its fallback, the stream goes on, and the final code

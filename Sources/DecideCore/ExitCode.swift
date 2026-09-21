@@ -3,11 +3,14 @@ import Foundation
 
 /// The README's exit codes and the one-line message for each error.
 ///
-/// 0 is a decision and 2 is unsure. 1 and 3 to 9 are reserved for outcomes
-/// of the question itself. Errors start at 10 and group by who has to act.
+/// 0 is a decision, and yes when the run has one yes/no question; 1 is no
+/// in that case; 2 is unsure. 3 to 9 are reserved for outcomes of the
+/// question itself. Errors start at 10 and group by who has to act.
 public enum ExitCode {
     /// The run produced a decision.
     public static let decided: Int32 = 0
+    /// The one yes/no question answered no.
+    public static let no: Int32 = 1
     /// The model answered, but below the bar a question set.
     public static let unsure: Int32 = 2
     /// Setup or input error: something local must change. Bad usage, a

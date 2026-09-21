@@ -69,6 +69,19 @@ struct DecideRunTests {
         ScriptedModel(answering: Self.answers(refund: .verdict(probability: 0.6)))
     }
 
+    /// A model that answers one yes/no question, `q1`, at that P(yes).
+    private static func spamModel(probability: Double) -> ScriptedModel {
+        ScriptedModel(
+            answering: Answers(
+                records: ["q1": .verdict(probability: probability)],
+                quality: .calibrated
+            )
+        )
+    }
+
+    /// The spam question from the README, with no question flags.
+    private static let spamQuestion = ["--context", "some message text", "Is this message spam?"]
+
     @Test("The batch example prints one answer per question, in order")
     func batchExample() async {
         var out = ""
@@ -152,25 +165,152 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
-    @Test("A bare question prints yes or no")
-    func bareQuestion() async {
-        let model = ScriptedModel(
-            answering: Answers(records: ["q1": .verdict(probability: 0.2)], quality: .calibrated)
-        )
+    @Test("A bare question prints yes and exits 0")
+    func bareQuestionYes() async {
         var out = ""
         var err = ""
 
         let code = await Decide.run(
-            arguments: ["--context", "some message text", "Is this message spam?"],
+            arguments: Self.spamQuestion,
             environment: [:],
-            model: model,
+            model: Self.spamModel(probability: 0.8),
             stdout: &out,
             stderr: &err
         )
 
         #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("A bare question prints no and exits 1")
+    func bareQuestionNo() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion,
+            environment: [:],
+            model: Self.spamModel(probability: 0.2),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 1)
         #expect(out == "no\n")
         #expect(err.isEmpty)
+    }
+
+    @Test("Custom values print the no value and exit 1")
+    func customVerdictValues() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--yes", "spam", "--no", "ham"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.2),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 1)
+        #expect(out == "ham\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("Custom values keep the yes side at exit 0")
+    func customVerdictYes() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--yes", "spam", "--no", "ham"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            stdout: &out,
+            stderr: &err
+        )
+
+        // The code follows the yes side's value, not the literal "yes".
+        #expect(code == 0)
+        #expect(out == "spam\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("A batch that starts with a yes/no question still exits 0")
+    func verdictFirstBatch() async {
+        let answers = Answers(
+            records: [
+                "q1": .verdict(probability: 0.2),
+                "q2": .choice(
+                    reported: "returns",
+                    probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03],
+                    confidence: 0.91
+                ),
+            ],
+            quality: .calibrated
+        )
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + Self.teamQuestion,
+            environment: [:],
+            model: ScriptedModel(answering: answers),
+            stdout: &out,
+            stderr: &err
+        )
+
+        // One code cannot carry two answers, so a batch exits 0 when decided.
+        #expect(code == 0)
+        #expect(out == "no\nreturns\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("-q prints nothing and answers with the exit code")
+    func quietVerdict() async {
+        for (probability, expected) in [(0.8, Int32(0)), (0.2, Int32(1))] {
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: Self.spamQuestion + ["-q"],
+                environment: [:],
+                model: Self.spamModel(probability: probability),
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == expected, "P(yes) \(probability)")
+            #expect(out.isEmpty, "P(yes) \(probability)")
+            #expect(err.isEmpty, "P(yes) \(probability)")
+        }
+    }
+
+    @Test("A yes/no answer below its bar exits 2 and prints nothing")
+    func unsureVerdict() async {
+        var out = ""
+        var err = ""
+
+        // P(yes) 0.8 is confidence 0.60, below the bar of 0.90.
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--min-confidence", "0.9"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out.isEmpty)
+        #expect(
+            err == """
+                Error: unsure: question 1 ("Is this message spam?") has confidence 0.60, \
+                below the bar of 0.90
+
+                """
+        )
     }
 
     @Test("An @file context reaches the model as the file's text")

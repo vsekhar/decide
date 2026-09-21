@@ -150,9 +150,21 @@ docker run --rm -e DECIDE_MODEL -e DECIDE_MODEL_API_KEY \
 The run tests only watch the streams they inject. A stray write to the
 process's real stdout, from this package or from the library, would not
 fail a test, and it would corrupt every answer a script reads. The binary
-is the check: on every non-zero exit, stdout must be empty.
+is the check: on every exit of 2 or more, stdout must be empty. One yes/no
+question exits 0 or 1 with its answer on stdout, and with nothing on stdout
+under `-q`.
 
 ```sh
 bin=$(swift build --show-bin-path)/decide
 env -u DECIDE_MODEL "$bin" --context x "Q?" --option a --option b 2>/dev/null | wc -c   # 0
+```
+
+With `.env` sourced, one yes/no question exits 0 or 1 and prints nothing
+under `-q`:
+
+```sh
+out=$(mktemp)
+"$bin" --context "free money, act now" "Is this message spam?" -q >"$out" 2>/dev/null
+echo $?           # 0 yes, 1 no
+wc -c < "$out"    # 0
 ```

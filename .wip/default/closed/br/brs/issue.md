@@ -2,7 +2,7 @@
 priority: p1
 type: task
 created: 2026-09-21T02:18:44-04:00
-updated: 2026-09-21T02:18:44-04:00
+updated: 2026-09-21T02:37:04-04:00
 ---
 
 # One yes/no question answers with its exit code, 0 yes and 1 no; --exit becomes --quiet
@@ -67,3 +67,21 @@ wip/fjj set the code scheme and reserved 1 for no; wip/h9x added the verdict kin
 - [ ] `--quiet` on anything but one yes/no question exits 10 with a message that says so; `--exit` is an unknown flag.
 - [ ] README and TESTING.md name no `--exit`, and the stdout invariant reads "exit of 2 or more".
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean, `swift test --skip DecideLive` passes, and `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-21 02:22:13-04:00 @ git:017bb10+local_
+
+Design record, 2026-09-21 session. Decisions that fix the implementation: (1) ExitCode.no: Int32 = 1 sits between decided and unsure; code(for:) is untouched since no error maps to 1. (2) Invocation gains 'public var quiet: Bool' with 'quiet: Bool = false' as the last init parameter. (3) Parser: '--quiet' and '-q' are exact tokens with no value, accepted anywhere; a second one throws '--quiet was given twice'; after the questions are built, quiet with anything but exactly one .verdict question throws '--quiet needs exactly one yes/no question'. A flag value stays verbatim, so '--option -q' still makes an option with id -q. (4) Decide.run prints answers unless quiet, then returns from a private exitCode(for:questions:) helper: one question of kind .verdict returns decided when the answer equals the yes value, else no; every other run returns decided. Unsure and error paths are unchanged and still print nothing. (5) Usage: a '--quiet, -q' line before --help, and the exit line keeps its text and gains a second line: 'One yes/no question answers with its exit code too: 0 yes, 1 no, like grep.' (6) README: Yes or no section's scripting example loses --exit and gains -q, with a sentence on the grep rule and a second example showing 'if answer=$(decide ...)' for captures under set -e; Errors example uses -q; the exit-codes lead-in, the branch sentence, and the fallback sentence lose --exit. (7) TESTING.md invariant becomes 'on every exit of 2 or more, stdout must be empty', with a second hand check for the one-question case. Implementation delegated to a worker; the brief holds the prose verbatim.
+
+---
+
+_📝 Noted on 2026-09-21 02:28:17-04:00 @ git:017bb10+local_
+
+Worker done; diff read in the main context. Shape: the parser takes '--quiet' or '-q' as exact tokens at the top of the walk, throws on a repeat, and after the questions are built refuses quiet unless there is exactly one .verdict question; Invocation carries quiet with a false default; Decide.run prints answers unless quiet and returns from a private exitCode(for:questions:) that gives 0 or 1 only for a single verdict; ExitCode.no = 1; usage gains the flag line and a second exit-code line; README's three passages and TESTING.md's invariant are the design record's text. Tests 113 -> 122 in 5 suites, build clean with warnings as errors. Live by hand, three requests: 'free money, act now' with -q exited 0 with nothing on stdout or stderr; the same text with --yes spam --no ham printed spam and exited 0; a lunch invitation with -q exited 1 with nothing on stdout. The TESTING.md hand check holds as written.
+
+---
+
+_📝 Noted on 2026-09-21 02:37:04-04:00 @ git:017bb10+local_
+
+Verifier: all five acceptance criteria hold, no blockers; one should-fix and six notes, run against a 54-case scripted sweep. Acted on: (1) the suite never proved the yes side of custom values, so a mutant comparing against the literal 'yes' passed; added 'Custom values keep the yes side at exit 0' (--yes spam --no ham at 0.8 gives 0 and spam), which fails under that mutant. (2) No test pinned questions.count == 1; a mutant with >= 1 passed; added 'A batch that starts with a yes/no question still exits 0' (verdict then choice gives 0 and two lines), which fails under that mutant. (3) exitCode(for:questions:) now binds outcomes.first in its guard instead of indexing, so the coupling to Runner's one-outcome-per-question shape cannot trap. (4) reservedRange's message now reads '1 is no, 2 is unsure, and 3 to 9 are reserved'. (5) README's first exit-code table is led in with 'For a choice, a rating, or a batch', since its '1 Not used' row is true only there. (6) TESTING.md's hand check uses mktemp instead of /tmp/a; two doc comments reworded. Left as is: -h anywhere still wins over a bad -q (help scans first); a bare -q where a question is expected reads as quiet, and the old code already rejected a dashed question, so nothing is lost; ExitCode.no has no binary-level check without a live model, which the TESTING.md hand check covers. Noted for --fallback and streams when they land: 'the final code is the highest code any event produced' would let a decided no (1) outrank a 0. Final: 124 tests in 5 suites, build clean with warnings as errors, live hand checks gave 0, 0, and 1 across three bodies. Summary: one yes/no question answers with its exit code like grep; --quiet/-q drops the printed answer; README and TESTING.md no longer name --exit.

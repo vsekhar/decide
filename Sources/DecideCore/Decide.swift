@@ -26,6 +26,7 @@ public enum Decide {
           --min-confidence <n>   The confidence an answer needs, from 0 to 1. Below it
                                  the run is unsure and exits 2. On a yes/no question, n
                                  means P(yes) at least (1 + n) / 2 for yes.
+          --quiet, -q            Print no answer. Only with one yes/no question.
           --help, -h             Print this text.
 
         Environment:
@@ -35,14 +36,15 @@ public enum Decide {
                                  variable: TYPESAFE_API_KEY or OPENROUTER_API_KEY.
 
         Exit codes: 0 decided, 2 unsure, 10 setup or input error, 11 remote error.
+        One yes/no question answers with its exit code too: 0 yes, 1 no, like grep.
         """
 
     /// Runs the tool and returns the process exit code.
     ///
     /// `arguments` are the command line after the program name. A `model`
     /// replaces the one the environment names, so tests inject a scripted
-    /// one. Answers go to `stdout`, one per line; everything else goes to
-    /// `stderr`.
+    /// one. Answers go to `stdout`, one per line, unless the run is quiet;
+    /// everything else goes to `stderr`.
     public static func run(
         arguments: [String],
         environment: [String: String],
@@ -89,10 +91,24 @@ public enum Decide {
             return ExitCode.code(for: error)
         }
 
-        for outcome in outcomes {
-            print(outcome.answer, to: &stdout)
+        if !invocation.quiet {
+            for outcome in outcomes {
+                print(outcome.answer, to: &stdout)
+            }
         }
-        return ExitCode.decided
+        return exitCode(for: outcomes, questions: invocation.questions)
+    }
+
+    /// The code a decided run returns. One yes/no question answers with its
+    /// exit code as well, like grep: 0 for yes, 1 for no. Every other run
+    /// returns 0.
+    private static func exitCode(for outcomes: [Outcome], questions: [Question]) -> Int32 {
+        guard questions.count == 1, case .verdict(let yes, _) = questions[0].kind,
+              let outcome = outcomes.first
+        else {
+            return ExitCode.decided
+        }
+        return outcome.answer == yes.id ? ExitCode.decided : ExitCode.no
     }
 
     /// Prints a usage error and the usage text to `stderr`.

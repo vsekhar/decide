@@ -13,7 +13,8 @@ public enum CommandLineParser {
     /// joins that question and sets its kind. A question with neither is a
     /// yes/no question; `--yes` and `--no` set what it prints.
     /// `--min-confidence` after a question sets the confidence its answer
-    /// needs. `--help` or `-h` anywhere returns `.help`. Anything the tool
+    /// needs. `--quiet` or `-q` keeps the one yes/no question's answer off
+    /// stdout. `--help` or `-h` anywhere returns `.help`. Anything the tool
     /// cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
@@ -21,11 +22,18 @@ public enum CommandLineParser {
 
         var context: ContextSource?
         var questions: [QuestionBuilder] = []
+        var quiet = false
         var index = 0
 
         while index < arguments.count {
             let token = arguments[index]
             index += 1
+
+            if token == "--quiet" || token == "-q" {
+                guard !quiet else { throw UsageError("--quiet was given twice") }
+                quiet = true
+                continue
+            }
 
             if let value = try flagValue(of: "--context", token: token, arguments: arguments, index: &index) {
                 guard context == nil else { throw UsageError("--context was given twice") }
@@ -75,7 +83,13 @@ public enum CommandLineParser {
             finished.append(question)
         }
 
-        return .run(Invocation(context: context, questions: finished))
+        if quiet {
+            guard finished.count == 1, case .verdict = finished[0].kind else {
+                throw UsageError("--quiet needs exactly one yes/no question")
+            }
+        }
+
+        return .run(Invocation(context: context, questions: finished, quiet: quiet))
     }
 
     /// One question as the parser builds it. `flag` is the first kind flag

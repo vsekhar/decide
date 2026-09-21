@@ -7,10 +7,14 @@ public struct Invocation: Sendable, Equatable {
     public var context: ContextSource
     /// The questions, in command-line order.
     public var questions: [Question]
+    /// Print no answer, from `--quiet`. Only a run with one yes/no question
+    /// may set it; the exit code carries the answer then.
+    public var quiet: Bool
 
-    public init(context: ContextSource, questions: [Question]) {
+    public init(context: ContextSource, questions: [Question], quiet: Bool = false) {
         self.context = context
         self.questions = questions
+        self.quiet = quiet
     }
 }
 
