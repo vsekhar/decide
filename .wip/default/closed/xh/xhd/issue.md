@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T21:06:37-04:00
-updated: 2026-09-20T23:59:31-04:00
+updated: 2026-09-21T00:38:35-04:00
 blocked-on:
   - eh3
   - h9x
@@ -88,3 +88,9 @@ Worker done; diff read in the main context. Shape: a private setMinimumConfidenc
 _📝 Noted on 2026-09-20 23:59:31-04:00 @ git:6e03947+local_
 
 Verifier: all five acceptance criteria hold; one should-fix and nine notes. Acted on: (1) Examples/ticket.sh dropped -e and so always exited 0 and wrote exit=N to stdout; it now captures decide's status, reports it on stderr, exits with it, and guards the cd; stub runs give rc 2 with empty stdout on an unsure answer and rc 0 with three lines otherwise. Its header now says the levels are the Leveling section's described ones. (2) New guard: a provider-reported confidence that is not finite or lies outside 0...1 is a malformedResponse, 'The answer for qN has confidence C, outside 0 to 1.', in both the choice and rating reads; without it a reported nan passed every bar. Two runner tests pin it and both fail with the guard removed (mutant proven). (3) Usage says 'The confidence an answer needs' per the record. (4) The parser's batch test and the script use the README's token order. (5) A run test covers the README combination offline: bar 0.7, refund P(yes) 0.87, three lines, exit 0. (6) Backticks on nil in a doc comment. Left as is and worth knowing: %.2f can print 'has confidence 0.70, below the bar of 0.70' for 0.699 (the record chose two decimals); Double(_:) also accepts hex floats, '+0.5', '.5', and '5e-1', all harmless; the bar means different things per kind, so a 0.7 bar needs P(yes) 0.85 on a verdict, sigma 0.3 on a three-level rating, and a top probability near 0.92 on a three-option choice, which the design chose over a P(top) reading; Examples/style.sh still uses the old set -eux and echo idiom. Final: 113 tests in 5 suites, build clean with warnings as errors, live suite green, ticket.sh live exit 2 with confidence 0.46 on the refund question. Summary: --min-confidence on any question, unsure exit 2 with one stderr line, no stdout.
+
+---
+
+_📝 Noted on 2026-09-21 00:38:35-04:00 @ git:00bc1ae_
+
+Follow-up filed in the library: DecisionModels wip/3qq, 'Resolve questionnaire answers against their specs so AnswerRecord.confidence is exact'. When it ships and the pin moves past 0.1.0, the fill and the reported-confidence guard in Runner.decide can go; keep the three pinned-number tests and the two guard tests as the regression check.
