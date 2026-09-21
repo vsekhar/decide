@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T21:27:42-04:00
-updated: 2026-09-20T21:50:00-04:00
+updated: 2026-09-20T21:59:38-04:00
 ---
 
 # Add GitHub Actions CI: macOS and Linux tests, live suite on push, coverage
@@ -86,3 +86,9 @@ Local check of the macOS step, CI-shaped env (no DECIDE_MODEL_API_KEY, no OPENRO
 _📝 Noted on 2026-09-20 21:50:00-04:00 @ git:a0cb374+local_
 
 Verifier report: all five acceptance criteria hold for everything checkable without a push. One should-fix and four notes, all fixed: (1) TESTING.md's 'gh secret set --body "$TYPESAFE_API_KEY"' sentence contradicted the documented .env shape, which has DECIDE_MODEL_API_KEY and no TYPESAFE_API_KEY, so a contributor could store an empty secret; dropped the sentence, kept the prompting form. (2) ci.yml comments were largely the library's words where the issue asked for fresh prose; rewrote every comment, and a diff with comments stripped shows the body unchanged. (3) The Linux UTF-8 note claimed the read may not throw on Linux; swift-foundation shares one implementation that throws on both, so TESTING.md now says the error's code and message may differ and that no test covers a corrupt file on either platform. (4) Linked the library's TESTING.md by URL, since a contributor has no local copy. (5) Added coverage.lcov to .gitignore, since the documented export writes it to the package root. Verifier also confirmed: the if: expressions match the library's byte for byte; the library's identical runner and container labels ran green on tag 0.1.0 today; Jev reads TYPESAFE_API_KEY itself when the tool passes a nil key; two Foundation calls not in the issue's list, trimmingCharacters(in:) and Data(string.utf8), exist in corelibs; Synchronization is cross-platform; no Darwin-only import. Still unverified, needs a push: the two jobs passing on GitHub, the Linux build itself, the Codecov upload, and the badges turning green. Summary: added .github/workflows/ci.yml, two README badges, a Continuous integration section in TESTING.md, and a .gitignore line.
+
+---
+
+_📝 Noted on 2026-09-20 21:59:38-04:00 @ git:a8af8bd_
+
+Pushed a8af8bd to main on the user's instruction; run 35552477780 passed. macOS tests: 1 min 33 s, 56 tests in 6 suites, DecideLive passed, zero warnings, coverage.lcov (8032 bytes) uploaded to Codecov with the action reporting success. Linux tests: 2 min 22 s, 56 tests in 6 suites, DecideLive passed, so URLSession from FoundationNetworking reached Jev; the first Linux build of this package needed no guard. Both jobs ran without a skip flag, as a push should. The macOS log shows 12 of the library's 'Internal Error: DecodingError' / 'LLVM Profile Error' pairs, so TESTING.md's hedged note about them is right for this package too. SwiftPM downloaded a prebuilt swift-syntax MacroSupport zip on macOS, which is why that job is fast even cold; Linux fetched swift-syntax from source. The CI badge reads passing on main via the workflow runs API. The codecov badge was not fetched from this session (the curl was declined); the upload was accepted and queued at https://app.codecov.io/github/vsekhar/decide/commit/a8af8bd. Acceptance criteria 1 and 3 now hold.
