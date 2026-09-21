@@ -23,7 +23,7 @@ public enum Decide {
           DECIDE_MODEL_API_KEY   The API key. When unset, the provider reads its own
                                  variable: TYPESAFE_API_KEY or OPENROUTER_API_KEY.
 
-        Exit codes: 0 decided, 2 usage or setup error, 3 runtime error.
+        Exit codes: 0 decided, 10 setup or input error, 11 remote error.
         """
 
     /// Runs the tool and returns the process exit code.
@@ -44,7 +44,7 @@ public enum Decide {
             parsed = try CommandLineParser.parse(arguments)
         } catch {
             report(error, to: &stderr)
-            return ExitCode.usage
+            return ExitCode.setup
         }
         let invocation: Invocation
         switch parsed {
@@ -64,7 +64,7 @@ public enum Decide {
         }
 
         guard let context = loadContext(invocation.context, stderr: &stderr) else {
-            return ExitCode.usage
+            return ExitCode.setup
         }
 
         let outcomes: [Outcome]

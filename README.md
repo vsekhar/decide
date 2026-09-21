@@ -280,8 +280,10 @@ Decisions are printed to stdout and the exit code reports errors:
 |---|---|
 | 0 | Decided: see stdout
 | 1 | Not used
-| 2 | Not decided: setup or input error (bad usage, model or key missing)
-| 3 | Not decided: runtime error (network, timeout, rate limit)
+| 2 | Not decided: unsure (confidence below --min-confidence, no --fallback)
+| 3-9 | Reserved for decision-like states
+| 10 | Not run: setup or input error (bad usage, model or key missing, unreadable file)
+| 11 | Not decided: remote error (network, timeout, rate limit, model refused)
 
 When the `--exit` flag is used for scripting, the error code carries the decision and stdout is not used:
 
@@ -289,15 +291,17 @@ When the `--exit` flag is used for scripting, the error code carries the decisio
 |---|---|
 | 0 | Decided: Yes
 | 1 | Decided: No
-| 2 | Not decided: setup or input error (bad usage, model or key missing)
-| 3 | Not decided: runtime error (network, timeout, rate limit)
+| 2 | Not decided: unsure (confidence below --min-confidence, no --fallback)
+| 3-9 | Reserved for decision-like states
+| 10 | Not run: setup or input error (bad usage, model or key missing, unreadable file)
+| 11 | Not decided: remote error (network, timeout, rate limit, model refused)
 
 Only 0 and 1 carry an answer. A script that branches on `--exit` should put the action on the yes side,
 or switch on `$?`.
 
-`--fallback` turns runtime errors (exit code 3) into decisions (exit code 0) and prints the fallback value. With `--exit` it
-returns the code of the fallback's side, or the fallback exit code.
+`--fallback` turns an unsure answer (exit code 2) and a remote error (exit code 11) into decisions (exit code 0) and prints
+the fallback value. With `--exit` it returns the code of the fallback's side, or the fallback exit code.
 
-In a stream, 2 stops the run at once. 3 is per event: the failed
-event gets an error line or its fallback, the stream goes on, and the final
-code is 4 if any event failed without a fallback.
+In a stream, 10 stops the run at once. 2 and 11 are per event: the event
+gets an error line or its fallback, the stream goes on, and the final code
+is the highest code any event produced.

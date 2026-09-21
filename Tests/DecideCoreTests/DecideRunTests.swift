@@ -89,7 +89,7 @@ struct DecideRunTests {
         #expect(request.state == .text(text))
     }
 
-    @Test("A missing context file exits 2 and reaches no model")
+    @Test("A missing context file exits 10 and reaches no model")
     func missingFile() async {
         let path = "/nonexistent/\(UUID().uuidString).txt"
         let model = Self.triageModel()
@@ -104,13 +104,13 @@ struct DecideRunTests {
             stderr: &err
         )
 
-        #expect(code == 2)
+        #expect(code == 10)
         #expect(err.contains(path))
         #expect(out.isEmpty)
         #expect(model.callCount == 0)
     }
 
-    @Test("No arguments prints the usage text on stderr and exits 2")
+    @Test("No arguments prints the usage text on stderr and exits 10")
     func noArguments() async {
         var out = ""
         var err = ""
@@ -123,7 +123,7 @@ struct DecideRunTests {
             stderr: &err
         )
 
-        #expect(code == 2)
+        #expect(code == 10)
         #expect(err.contains("Error: no arguments given"))
         #expect(err.contains(Decide.usage))
         #expect(out.isEmpty)
@@ -142,7 +142,7 @@ struct DecideRunTests {
             stderr: &err
         )
 
-        #expect(code == 2)
+        #expect(code == 10)
         #expect(err.hasPrefix("Error: unknown flag: --bogus"))
         #expect(err.contains(Decide.usage))
         #expect(out.isEmpty)
@@ -166,7 +166,7 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
-    @Test("An empty environment and no injected model exits 2")
+    @Test("An empty environment and no injected model exits 10")
     func noModel() async {
         var out = ""
         var err = ""
@@ -178,12 +178,12 @@ struct DecideRunTests {
             stderr: &err
         )
 
-        #expect(code == 2)
+        #expect(code == 10)
         #expect(err.contains("DECIDE_MODEL"))
         #expect(out.isEmpty)
     }
 
-    @Test("A timeout exits 3 and leaves stdout empty")
+    @Test("A timeout exits 11 and leaves stdout empty")
     func timeout() async {
         let model = ScriptedModel { _ in throw DecisionError.timeout }
         var out = ""
@@ -197,7 +197,7 @@ struct DecideRunTests {
             stderr: &err
         )
 
-        #expect(code == 3)
+        #expect(code == 11)
         #expect(err == "Error: the request timed out.\n")
         #expect(out.isEmpty)
     }

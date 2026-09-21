@@ -11,7 +11,7 @@ bin="$root/.build/debug/decide"
 
 if [ ! -x "$bin" ]; then
     echo "Error: no decide binary at $bin. Run: swift build --package-path \"$root\"" >&2
-    exit 2
+    exit 10
 fi
 
 if [ -f "$root/.env" ]; then

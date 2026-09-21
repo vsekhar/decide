@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T21:20:36-04:00
-updated: 2026-09-20T21:20:36-04:00
+updated: 2026-09-20T22:10:52-04:00
 may-unblock:
   - xhd
 ---
@@ -86,3 +86,15 @@ wip/xhd (blocked on this) adds code 2. wip/mfa and wip/ayd hold the original exi
 - [ ] `Decide.usage` ends with the new exit-code line.
 - [ ] The table test proves no error maps to 1 through 9.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean and `swift test --skip DecideLive` passes.
+
+---
+
+_📝 Noted on 2026-09-20 22:06:23-04:00 @ git:4084396+local_
+
+Design record. Done directly in the main context; a worker brief would have repeated the issue's Design section, which already fixes every edit. Changes: ExitCode.usage -> ExitCode.setup = 10, ExitCode.runtime -> ExitCode.remote = 11, decided stays 0, no aliases; the enum's doc says 1 to 9 are reserved for outcomes of the question and errors start at 10. code(for:) keeps its shape with the new names. Decide.swift's two direct returns and the usage line follow; Examples/decide exits 10 when the binary is missing; README's two tables and the two paragraphs are the issue's text verbatim, and the stream paragraph drops the special 4. Tests: the 32-row table now expects 10 or 11; new 'constants' test pins 0/10/11; new 'reservedRange' test asserts every table code is 0 or at least 10 with the message '1 to 9 are reserved for decision-like states'. DecideRunTests: four setup scenarios expect 10, timeout expects 11, test names renamed to match. Proof the range test bites: with setup mutated to 2, swift test --filter ExitCode fails 'codes', 'constants', and 'reservedRange' (the last names each offending error); restored, all pass. Checks: swift build --build-tests -Xswiftc -warnings-as-errors clean, 0 warnings; swift test --skip DecideLive passes 57 tests in 5 suites; by hand the built binary with no DECIDE_MODEL exits 10 with empty stdout, Examples/decide --help with the binary moved away exits 10, and --help ends with 'Exit codes: 0 decided, 10 setup or input error, 11 remote error.' Dead code: the change adds two constants that replace two removed ones; every use was renamed and no reference to the old names remains (grep). Not touched: DEVELOPMENT.md and TESTING.md name no codes.
+
+---
+
+_📝 Noted on 2026-09-20 22:10:52-04:00 @ git:4084396+local_
+
+Verifier: all five acceptance criteria hold, no blockers, no should-fixes. It ran six error paths on the built binary (no arguments, unknown flag, no DECIDE_MODEL, DECIDE_MODEL without a colon, typesafe:x with no key, missing context file), each exit 10 with empty stdout; confirmed the 32-row table covers every DecisionError, Unsupported, and Availability.Reason case at tag 0.1.0 plus the local error types; confirmed the README diff sits inside the Appendix section and matches the issue's text. Three notes: (1) the setup doc comment omitted the rejected key; fixed. (2) The reserved-range proof rests on the hand-written table, but both default arms return remote, so a new library case cannot land low; only a new constant plus a new arm without a table row would slip past. (3) The README now documents code 2 and 3 to 9 ahead of the code; wip/xhd owns that. Summary: exit codes renumbered to 0/10/11 in ExitCode, Decide, the example wrapper, the README Appendix, and both test files, with two new tests.

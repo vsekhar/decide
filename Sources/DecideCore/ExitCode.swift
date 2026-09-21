@@ -2,25 +2,30 @@ import DecisionModels
 import Foundation
 
 /// The README's exit codes and the one-line message for each error.
+///
+/// 0 is a decision. 1 to 9 are reserved for outcomes of the question
+/// itself. Errors start at 10 and group by who has to act.
 public enum ExitCode {
     /// The run produced a decision.
     public static let decided: Int32 = 0
-    /// Bad usage, or a missing model or key.
-    public static let usage: Int32 = 2
-    /// The run reached the model and failed.
-    public static let runtime: Int32 = 3
+    /// Setup or input error: something local must change. Bad usage, a
+    /// missing or malformed model or key, a rejected key, an unreadable
+    /// file, or a question the model cannot take.
+    public static let setup: Int32 = 10
+    /// Remote error: try again later, or blame the server.
+    public static let remote: Int32 = 11
 
     /// Gives the exit code for an error.
     public static func code(for error: any Error) -> Int32 {
         switch error {
         case is UsageError:
-            usage
+            setup
         case is ConfigurationError:
-            usage
+            setup
         case let error as DecisionError:
             code(for: error)
         default:
-            runtime
+            remote
         }
     }
 
@@ -44,12 +49,12 @@ public enum ExitCode {
         switch error {
         case .unavailable(.notConfigured), .unauthorized, .invalidQuestion, .unsupported,
             .contextSizeExceeded:
-            usage
+            setup
         case .unavailable, .rateLimited, .overloaded, .timeout, .refused, .guardrailViolation,
             .insufficientProbabilityQuality, .malformedResponse, .transport:
-            runtime
+            remote
         @unknown default:
-            runtime
+            remote
         }
     }
 

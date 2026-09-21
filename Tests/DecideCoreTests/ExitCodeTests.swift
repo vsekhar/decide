@@ -12,38 +12,38 @@ private struct Unknown: Error {}
 /// Every error the CLI can meet, with the exit code it must give.
 private func errorTable() -> [(error: any Error, code: Int32)] {
     [
-        (DecisionError.unavailable(.notConfigured("TYPESAFE_API_KEY")), 2),
-        (DecisionError.unavailable(.offline), 3),
-        (DecisionError.unavailable(.deviceNotEligible), 3),
-        (DecisionError.unavailable(.modelNotReady), 3),
-        (DecisionError.unavailable(.other("x")), 3),
-        (DecisionError.unsupported(.repeatedSamples), 2),
-        (DecisionError.unsupported(.structuredCriteria), 2),
-        (DecisionError.unsupported(.structuredInstructions), 2),
-        (DecisionError.unsupported(.tooManyOptions(id: "q1", count: 300, limit: 255)), 2),
-        (DecisionError.unsupported(.tooManyLevels(id: "q1", count: 11, limit: 10)), 2),
-        (DecisionError.unsupported(.tooManyQuestions(count: 5, limit: 4)), 2),
-        (DecisionError.invalidQuestion(id: "q1", reason: "r"), 2),
-        (DecisionError.contextSizeExceeded(limit: 1, estimated: 2), 2),
-        (DecisionError.contextSizeExceeded(limit: nil, estimated: nil), 2),
-        (DecisionError.rateLimited(retryAfter: .seconds(2)), 3),
-        (DecisionError.rateLimited(retryAfter: nil), 3),
-        (DecisionError.overloaded, 3),
-        (DecisionError.unauthorized, 2),
-        (DecisionError.timeout, 3),
-        (DecisionError.refused, 3),
-        (DecisionError.guardrailViolation, 3),
-        (DecisionError.insufficientProbabilityQuality(got: .pointEstimate, required: .calibrated), 3),
-        (DecisionError.malformedResponse("bad"), 3),
-        (DecisionError.malformedResponse("line one\r\nline two"), 3),
-        (DecisionError.malformedResponse("line one\u{2028}line two"), 3),
-        (DecisionError.transport(SomeError()), 3),
-        (UsageError("x"), 2),
-        (ConfigurationError.missingModel, 2),
-        (ConfigurationError.malformedModel("jev-latest"), 2),
-        (ConfigurationError.unknownProvider("foo"), 2),
-        (CancellationError(), 3),
-        (Unknown(), 3),
+        (DecisionError.unavailable(.notConfigured("TYPESAFE_API_KEY")), 10),
+        (DecisionError.unavailable(.offline), 11),
+        (DecisionError.unavailable(.deviceNotEligible), 11),
+        (DecisionError.unavailable(.modelNotReady), 11),
+        (DecisionError.unavailable(.other("x")), 11),
+        (DecisionError.unsupported(.repeatedSamples), 10),
+        (DecisionError.unsupported(.structuredCriteria), 10),
+        (DecisionError.unsupported(.structuredInstructions), 10),
+        (DecisionError.unsupported(.tooManyOptions(id: "q1", count: 300, limit: 255)), 10),
+        (DecisionError.unsupported(.tooManyLevels(id: "q1", count: 11, limit: 10)), 10),
+        (DecisionError.unsupported(.tooManyQuestions(count: 5, limit: 4)), 10),
+        (DecisionError.invalidQuestion(id: "q1", reason: "r"), 10),
+        (DecisionError.contextSizeExceeded(limit: 1, estimated: 2), 10),
+        (DecisionError.contextSizeExceeded(limit: nil, estimated: nil), 10),
+        (DecisionError.rateLimited(retryAfter: .seconds(2)), 11),
+        (DecisionError.rateLimited(retryAfter: nil), 11),
+        (DecisionError.overloaded, 11),
+        (DecisionError.unauthorized, 10),
+        (DecisionError.timeout, 11),
+        (DecisionError.refused, 11),
+        (DecisionError.guardrailViolation, 11),
+        (DecisionError.insufficientProbabilityQuality(got: .pointEstimate, required: .calibrated), 11),
+        (DecisionError.malformedResponse("bad"), 11),
+        (DecisionError.malformedResponse("line one\r\nline two"), 11),
+        (DecisionError.malformedResponse("line one\u{2028}line two"), 11),
+        (DecisionError.transport(SomeError()), 11),
+        (UsageError("x"), 10),
+        (ConfigurationError.missingModel, 10),
+        (ConfigurationError.malformedModel("jev-latest"), 10),
+        (ConfigurationError.unknownProvider("foo"), 10),
+        (CancellationError(), 11),
+        (Unknown(), 11),
     ]
 }
 
@@ -53,6 +53,21 @@ struct ExitCodeTests {
     func codes() {
         for (error, expected) in errorTable() {
             #expect(ExitCode.code(for: error) == expected, "\(error)")
+        }
+    }
+
+    @Test("The constants are the README's numbers")
+    func constants() {
+        #expect(ExitCode.decided == 0)
+        #expect(ExitCode.setup == 10)
+        #expect(ExitCode.remote == 11)
+    }
+
+    @Test("No error lands in the range reserved for decision-like states")
+    func reservedRange() {
+        for (error, _) in errorTable() {
+            let code = ExitCode.code(for: error)
+            #expect(code == 0 || code >= 10, "1 to 9 are reserved for decision-like states: \(error)")
         }
     }
 
