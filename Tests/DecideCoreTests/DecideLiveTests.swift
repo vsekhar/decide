@@ -48,7 +48,7 @@ struct DecideLiveTests {
         return nil
     }
 
-    @Test("decide triages a support ticket")
+    @Test("decide answers a three-question batch about a support ticket")
     func triagesATicket() async {
         guard let environment = liveEnvironment() else { return }
 
@@ -64,6 +64,10 @@ struct DecideLiveTests {
                 "--context", ticket,
                 "Which team handles this ticket?",
                 "--option", "shipping", "--option", "billing", "--option", "returns",
+                "How urgent is this ticket?",
+                "--level", "not_urgent", "--level", "somewhat_urgent", "--level", "urgent",
+                "Should we issue a refund?",
+                "--yes", "Yes", "--no", "No",
             ],
             environment: environment,
             stdout: &out,
@@ -72,6 +76,13 @@ struct DecideLiveTests {
 
         #expect(code == 0)
         #expect(err.isEmpty)
-        #expect(["shipping\n", "billing\n", "returns\n"].contains(out))
+        // One line per question, in question order.
+        let lines = out.split(separator: "\n").map(String.init)
+        #expect(out.hasSuffix("\n"))
+        #expect(lines.count == 3)
+        guard lines.count == 3 else { return }
+        #expect(["shipping", "billing", "returns"].contains(lines[0]))
+        #expect(["not_urgent", "somewhat_urgent", "urgent"].contains(lines[1]))
+        #expect(["Yes", "No"].contains(lines[2]))
     }
 }

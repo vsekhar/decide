@@ -18,7 +18,13 @@ struct DecideRunTests {
         "How urgent is this ticket?",
         "--level", "not_urgent", "--level", "somewhat_urgent", "--level", "urgent",
     ]
-    /// What the scripted model answers: `q1` is the team, `q2` the urgency.
+    /// The refund question from the README, with its two values.
+    private static let refundQuestion = [
+        "Should we issue a refund?",
+        "--yes", "Yes", "--no", "No",
+    ]
+    /// What the scripted model answers: `q1` is the team, `q2` the urgency,
+    /// and `q3` the refund.
     private static let answers = Answers(
         records: [
             "q1": .choice(
@@ -31,6 +37,7 @@ struct DecideRunTests {
                 probabilities: [0: 0.15, 1: 0.55, 2: 0.30],
                 confidence: 0.78
             ),
+            "q3": .verdict(probability: 0.87),
         ],
         quality: .calibrated
     )
@@ -50,7 +57,7 @@ struct DecideRunTests {
 
         let code = await Decide.run(
             arguments: ["--context", "some ticket text"] + Self.teamQuestion
-                + Self.urgencyQuestion,
+                + Self.urgencyQuestion + Self.refundQuestion,
             environment: [:],
             model: Self.triageModel(),
             stdout: &out,
@@ -58,7 +65,28 @@ struct DecideRunTests {
         )
 
         #expect(code == 0)
-        #expect(out == "returns\nsomewhat_urgent\n")
+        #expect(out == "returns\nsomewhat_urgent\nYes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("A bare question prints yes or no")
+    func bareQuestion() async {
+        let model = ScriptedModel(
+            answering: Answers(records: ["q1": .verdict(probability: 0.2)], quality: .calibrated)
+        )
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some message text", "Is this message spam?"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "no\n")
         #expect(err.isEmpty)
     }
 

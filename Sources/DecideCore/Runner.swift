@@ -4,11 +4,13 @@ import DecisionModels
 public struct Outcome: Sendable, Equatable {
     /// The id the question ran under: `q1`, `q2`, and so on.
     public let questionID: String
-    /// The id of the option or level the model picked.
+    /// The id of the option or level the model picked, or the yes or no
+    /// value.
     public let answer: String
     /// How sure the model is, from 0 to 1.
     public let confidence: Double
-    /// The probability of every option or level, keyed by id.
+    /// The probability of every option or level, keyed by id, or of the yes
+    /// and no values.
     public let probabilities: [String: Double]
 
     public init(
@@ -31,7 +33,9 @@ public enum Runner {
     /// Ids are `q1` to `qN`, in question order. An option or level with no
     /// description uses its id as the criterion summary, because the id is
     /// what the model sees either way. Levels go on the wire as criteria in
-    /// order; the read maps indices back to ids.
+    /// order; the read maps indices back to ids. A yes or no value with no
+    /// description sends no criterion, because the value is a label, not a
+    /// description of the case.
     public static func makeQuestionnaire(_ questions: [Question]) -> Questionnaire {
         Questionnaire(questions.enumerated().map { index, question in
             let kind: QuestionSpec.Kind = switch question.kind {
@@ -44,6 +48,11 @@ public enum Runner {
                 })
             case .rating(let levels):
                 .rating(levels: levels.map { Criterion($0.description ?? $0.id) })
+            case .verdict(let yes, let no):
+                .verdict(
+                    ifTrue: yes.description.map { Criterion($0) },
+                    ifFalse: no.description.map { Criterion($0) }
+                )
             }
             return QuestionSpec(
                 id: identifier(at: index),
@@ -61,8 +70,8 @@ public enum Runner {
     /// because the record alone cannot know how many there are.
     ///
     /// Throws `DecisionError.malformedResponse` when a question comes back
-    /// with no answer, with an answer of the wrong kind, or with a level index
-    /// off the scale.
+    /// with no answer, with an answer of the wrong kind, with a level index
+    /// off the scale, or with a probability outside 0 to 1.
     public static func decide(
         _ questions: [Question],
         about context: String,
@@ -101,6 +110,13 @@ public enum Runner {
                     score: score,
                     probabilities: probabilities,
                     reportedConfidence: confidence
+                )
+            case .verdict(let yes, let no):
+                guard case .verdict(let probability) = record else {
+                    throw DecisionError.malformedResponse("The answer for \(id) is not a verdict.")
+                }
+                return try verdictOutcome(
+                    questionID: id, yes: yes, no: no, probability: probability
                 )
             }
         }
@@ -151,6 +167,41 @@ public enum Runner {
             answer: levels[best].id,
             confidence: full.confidence,
             probabilities: byID
+        )
+    }
+
+    /// Turns a verdict probability into an outcome against the question's two
+    /// sides.
+    ///
+    /// The probability is P(yes). The answer is the yes value when it reaches
+    /// 0.5, else the no value. The confidence is the library's number; the
+    /// record already covers both sides, so there is nothing to fill in.
+    ///
+    /// Throws `DecisionError.malformedResponse` when the probability is not
+    /// finite or lies outside 0 to 1.
+    private static func verdictOutcome(
+        questionID: String,
+        yes: Option,
+        no: Option,
+        probability: Double
+    ) throws -> Outcome {
+        guard probability.isFinite, (0...1).contains(probability) else {
+            throw DecisionError.malformedResponse(
+                "The answer for \(questionID) has probability \(probability), outside 0 to 1."
+            )
+        }
+        let full = AnswerRecord.verdict(probability: probability)
+        // Two assignments, not a literal: a literal traps on a repeated key,
+        // and the parser's guard against one value for both sides should not
+        // be the only thing standing between a bad question and a crash.
+        var probabilities: [String: Double] = [:]
+        probabilities[yes.id] = probability
+        probabilities[no.id] = 1 - probability
+        return Outcome(
+            questionID: questionID,
+            answer: probability >= 0.5 ? yes.id : no.id,
+            confidence: full.confidence,
+            probabilities: probabilities
         )
     }
 

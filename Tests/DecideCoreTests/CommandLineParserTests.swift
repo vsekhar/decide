@@ -97,6 +97,79 @@ struct CommandLineParserTests {
         )
     }
 
+    @Test("The README yes or no example parses to a verdict")
+    func verdictExample() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "@ticket.txt",
+            "Should we issue a refund?",
+            "--yes", "Hell yeah",
+            "--no", "Forget it",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .file("ticket.txt"),
+                        questions: [
+                            Question(
+                                instructions: "Should we issue a refund?",
+                                kind: .verdict(
+                                    yes: Option(id: "Hell yeah"),
+                                    no: Option(id: "Forget it")
+                                )
+                            )
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("--yes Yes --no No parses to a verdict with those two values")
+    func shortVerdictValues() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "c", "Q", "--yes", "Yes", "--no", "No",
+        ])
+        #expect(result == .run(verdict(yes: Option(id: "Yes"), no: Option(id: "No"))))
+    }
+
+    @Test("--yes value=desc gives the description on the yes side")
+    func verdictDescription() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "c", "Q", "--yes", "Hell yeah=Allowed by the policy",
+        ])
+        #expect(
+            result
+                == .run(
+                    verdict(
+                        yes: Option(id: "Hell yeah", description: "Allowed by the policy"),
+                        no: Option(id: "no")
+                    )
+                )
+        )
+    }
+
+    @Test("A question with no kind flag is a yes/no question with the default values")
+    func bareQuestion() throws {
+        let result = try CommandLineParser.parse(["--context", "c", "Q"])
+        #expect(result == .run(verdict(yes: Option(id: "yes"), no: Option(id: "no"))))
+    }
+
+    @Test("A side the user leaves out keeps its default value, in either order")
+    func verdictDefaults() throws {
+        #expect(
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes", "Yep"])
+                == .run(verdict(yes: Option(id: "Yep"), no: Option(id: "no")))
+        )
+        #expect(
+            try CommandLineParser.parse(["--context", "c", "Q", "--no", "Nope"])
+                == .run(verdict(yes: Option(id: "yes"), no: Option(id: "Nope")))
+        )
+        #expect(
+            try CommandLineParser.parse(["--context", "c", "Q", "--no", "Nope", "--yes", "Yep"])
+                == .run(verdict(yes: Option(id: "Yep"), no: Option(id: "Nope")))
+        )
+    }
+
     @Test("The batch example keeps each question's own kind and values, in order")
     func batchExample() throws {
         let result = try CommandLineParser.parse([
@@ -109,6 +182,9 @@ struct CommandLineParserTests {
             "--level", "not_urgent",
             "--level", "somewhat_urgent",
             "--level", "urgent",
+            "Should we issue a refund?",
+            "--yes", "Yes",
+            "--no", "No",
         ])
         #expect(
             result
@@ -131,6 +207,10 @@ struct CommandLineParserTests {
                                     Option(id: "somewhat_urgent"),
                                     Option(id: "urgent"),
                                 ])
+                            ),
+                            Question(
+                                instructions: "Should we issue a refund?",
+                                kind: .verdict(yes: Option(id: "Yes"), no: Option(id: "No"))
                             ),
                         ]
                     )
@@ -268,12 +348,11 @@ struct CommandLineParserTests {
         }
     }
 
-    @Test("A question with no kind flag is an error that names it")
-    func questionWithoutKindFlag() {
-        let error = #expect(throws: UsageError.self) {
-            try CommandLineParser.parse(["--context", "c", "Q1", "--option", "a", "Q2"])
+    @Test("--yes before any question is an error")
+    func yesBeforeQuestion() {
+        #expect(throws: UsageError("--yes before any question")) {
+            try CommandLineParser.parse(["--context", "c", "--yes", "y", "Q"])
         }
-        #expect(error?.message == "question 2 (\"Q2\") has no --option or --level")
     }
 
     @Test("A question that mixes --option and --level is an error that names both flags")
@@ -287,6 +366,47 @@ struct CommandLineParserTests {
             try CommandLineParser.parse(["--context", "c", "Q", "--level", "a", "--option", "b"])
         }
         #expect(levelFirst?.message == "question 1 (\"Q\") mixes --level and --option")
+    }
+
+    @Test("A question that mixes a verdict flag with another kind is an error")
+    func mixedVerdictKinds() {
+        let optionFirst = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--option", "a", "--yes", "y"])
+        }
+        #expect(optionFirst?.message == "question 1 (\"Q\") mixes --option and --yes")
+
+        let yesFirst = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes", "y", "--level", "a"])
+        }
+        #expect(yesFirst?.message == "question 1 (\"Q\") mixes --yes and --level")
+    }
+
+    @Test("A repeated --yes or --no is an error that names the flag")
+    func repeatedVerdictFlag() {
+        let yes = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes", "a", "--yes", "b"])
+        }
+        #expect(yes?.message == "question 1 (\"Q\") repeats --yes")
+
+        let no = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--no", "a", "--no", "b"])
+        }
+        #expect(no?.message == "question 1 (\"Q\") repeats --no")
+    }
+
+    @Test("The same value on both sides is an error that names the question")
+    func sameValueBothSides() {
+        let both = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes", "same", "--no", "same"])
+        }
+        #expect(both?.message == "question 1 (\"Q\") uses the same value for --yes and --no")
+
+        let againstDefault = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes", "no"])
+        }
+        #expect(
+            againstDefault?.message == "question 1 (\"Q\") uses the same value for --yes and --no"
+        )
     }
 
     @Test("A rating with one level is an error that names the question")
@@ -347,6 +467,16 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--yes or --no as the last token needs a value")
+    func verdictFlagWithoutValue() {
+        #expect(throws: UsageError("--yes needs a value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes"])
+        }
+        #expect(throws: UsageError("--no needs a value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--no"])
+        }
+    }
+
     @Test("An empty level description counts as none")
     func levelEmptyDescription() throws {
         let result = try CommandLineParser.parse(["--context", "c", "Q", "--level", "a=", "--level", "b"])
@@ -390,6 +520,33 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("A --yes or --no with no value is an error")
+    func verdictFlagWithoutID() {
+        #expect(throws: UsageError("a --yes has no value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes", ""])
+        }
+        #expect(throws: UsageError("a --yes has no value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--yes", "=desc"])
+        }
+        #expect(throws: UsageError("a --no has no value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--no", ""])
+        }
+        #expect(throws: UsageError("a --no has no value")) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--no", "=desc"])
+        }
+    }
+
+    @Test("--min-confidence is not a flag yet")
+    func minConfidenceIsUnknown() {
+        let error = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse([
+                "--context", "c", "Q", "--yes", "Yes", "--no", "No",
+                "--min-confidence", "0.7",
+            ])
+        }
+        #expect(error?.message == "unknown flag: --min-confidence")
+    }
+
     /// One question with one option, for the tests that check the context.
     private let question = Question(instructions: "Q", kind: .choice([Option(id: "a")]))
 
@@ -398,6 +555,14 @@ struct CommandLineParserTests {
         Invocation(
             context: .text("c"),
             questions: [Question(instructions: "Q", kind: .choice([option]))]
+        )
+    }
+
+    /// One yes/no question with those two sides, for the verdict tests.
+    private func verdict(yes: Option, no: Option) -> Invocation {
+        Invocation(
+            context: .text("c"),
+            questions: [Question(instructions: "Q", kind: .verdict(yes: yes, no: no))]
         )
     }
 }

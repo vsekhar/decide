@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-20T21:06:37-04:00
-updated: 2026-09-20T22:18:00-04:00
+updated: 2026-09-20T22:35:51-04:00
 blocked-on:
   - eh3
   - h9x
@@ -70,3 +70,9 @@ Follows wip/nzu, the parent of wip/eh3 and wip/h9x; blocked on both and on wip/f
 _📝 Noted on 2026-09-20 22:18:00-04:00 @ git:5efc7eb+local_
 
 Design record, 2026-09-20 session, written before implementation. Decisions: (1) Question gains 'public var minimumConfidence: Double?' with init parameter 'minimumConfidence: Double? = nil' after kind; nil means no bar. (2) Parser: '--min-confidence VALUE' and '--min-confidence=VALUE' after a question, any kind, at most once. VALUE must parse as Double, be finite, and lie in 0...1. Messages, exact: '--min-confidence needs a number from 0 to 1, got "abc"' (the raw token in quotes; nan and inf fail this too); 'question N ("...") repeats --min-confidence'; '--min-confidence before any question'; '--min-confidence needs a value'. It is a modifier, not a kind flag, so it never trips the mixed-kinds rule. (3) New file Sources/DecideCore/UnsureError.swift: 'public struct UnsureError: Error, Equatable, Sendable { public let questions: [Unsure] }' and 'public struct Unsure: Equatable, Sendable { number: Int (1-based), instructions: String, confidence: Double, minimumConfidence: Double }'. (4) Runner.decide: after every record is read into an Outcome, collect each question whose bar is set and whose outcome.confidence < bar, in question order; if any, throw UnsureError. Decided answers are not printed; stdout stays empty on every non-zero exit. (5) ExitCode: 'public static let unsure: Int32 = 2'; code(for:) maps UnsureError to it before the default arm; message(for:) gives one line: 'Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.20, below the bar of 0.70', several questions joined by '; ', two decimals via String(format: "%.2f"), passed through oneLine. The reservedRange test becomes 'every code is 0, 2, or at least 10' and the table gains UnsureError rows. (6) Usage: a line '--min-confidence <n>     The confidence an answer needs, from 0 to 1. Below it the run is unsure and exits 2. On a yes/no question, n means P(yes) at least (1 + n) / 2 for yes.' wrapped to the column, and 'Exit codes: 0 decided, 2 unsure, 10 setup or input error, 11 remote error.' (7) Examples/ticket.sh: the refund question gains --min-confidence 0.7 and the header says the run exits 2 when the model is unsure there. README: no change.
+
+---
+
+_📝 Noted on 2026-09-20 22:35:51-04:00 @ git:8c90147+local_
+
+Addendum from wip/eh3's verification: Outcome.confidence is now the library's section 6.1 formula over the whole scale. Runner.decide fills every option or level the record leaves out at 0 before asking AnswerRecord.confidence, because the record alone infers the count from its own keys and would understate confidence when the provider omits a level (0.08 versus 0.54 in the probe). A reported confidence still wins. So --min-confidence gates on the whole-scale number; the xhd runner tests that compare against AnswerRecord.rating(...).confidence must build the record with all levels present, or pin literals (0.3462 for [0.15, 0.55, 0.30] on three levels, 0.4439 for a 0.7/0.3 choice among three options).

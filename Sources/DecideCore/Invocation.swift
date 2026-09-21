@@ -26,7 +26,7 @@ public enum ContextSource: Sendable, Equatable {
 public struct Question: Sendable, Equatable {
     /// What to judge, as the user typed it.
     public var instructions: String
-    /// A choice from options or a rating on levels.
+    /// A choice from options, a rating on levels, or a yes/no verdict.
     public var kind: Kind
 
     public init(instructions: String, kind: Kind) {
@@ -35,24 +35,29 @@ public struct Question: Sendable, Equatable {
     }
 
     /// The kind of question. The flags after the question decide it:
-    /// `--option` makes a choice, `--level` makes a rating.
+    /// `--option` makes a choice, `--level` makes a rating, and neither makes
+    /// a yes/no question, which `--yes` and `--no` decorate.
     public enum Kind: Sendable, Equatable {
         /// Pick one option. The answer is its id.
         case choice([Option])
         /// Place the context on an ordered scale, low to high. The answer is
         /// the id of the most likely level.
         case rating([Option])
+        /// Answer yes or no. The answer is the yes value when P(yes) is at
+        /// least 0.5, else the no value. A side's description, when given, is
+        /// what counts as that side.
+        case verdict(yes: Option, no: Option)
     }
 }
 
-/// One answer the model can pick: an option of a choice or a level of a
-/// rating. Both have an id and an optional description, so one struct serves
-/// both.
+/// One answer the model can pick: an option of a choice, a level of a rating,
+/// or a side of a yes/no question. Each has an id, the value to print, and an
+/// optional description, so one struct serves all three.
 public struct Option: Sendable, Equatable {
-    /// The id the model reports and the tool prints.
+    /// The value the tool prints. For a choice, also the id the model reports.
     public var id: String
-    /// What the option or level covers, from `id=description`. `nil` when the
-    /// user gave only the id.
+    /// What the option, level, or side covers, from `id=description`. `nil`
+    /// when the user gave only the id.
     public var description: String?
 
     public init(id: String, description: String? = nil) {

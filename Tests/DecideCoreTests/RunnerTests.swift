@@ -28,6 +28,10 @@ struct RunnerTests {
                 DecideCore.Option(id: "urgent"),
             ])
         ),
+        DecideCore.Question(
+            instructions: "Should we issue a refund?",
+            kind: .verdict(yes: DecideCore.Option(id: "Yes"), no: DecideCore.Option(id: "No"))
+        ),
     ]
     static let context = "The parcel never arrived and I want my money back."
     static let teamProbabilities = ["returns": 0.91, "shipping": 0.06, "billing": 0.03]
@@ -35,36 +39,45 @@ struct RunnerTests {
     static let urgencyProbabilities = [0: 0.15, 1: 0.55, 2: 0.30]
     /// The same numbers as the outcome keys them, by level id.
     static let urgencyByLevel = ["not_urgent": 0.15, "somewhat_urgent": 0.55, "urgent": 0.30]
-    static let bothAnswers = answers(
+    /// What the model reports for the verdict: P(yes).
+    static let refundProbability = 0.87
+    static let allAnswers = answers(
         urgency: .rating(score: 1.2, probabilities: urgencyProbabilities, confidence: 0.78)
     )
 
-    /// The team answer, plus the urgency record a test wants for `q2`.
-    static func answers(urgency record: AnswerRecord) -> Answers {
+    /// The team answer, plus the urgency record a test wants for `q2` and the
+    /// refund record it wants for `q3`.
+    static func answers(
+        urgency record: AnswerRecord,
+        refund: AnswerRecord = .verdict(probability: refundProbability)
+    ) -> Answers {
         Answers(
             records: [
                 "q1": .choice(
                     reported: "returns", probabilities: teamProbabilities, confidence: 0.91
                 ),
                 "q2": record,
+                "q3": refund,
             ],
             quality: .calibrated
         )
     }
 
-    @Test("The questions become specs q1 and q2")
+    @Test("The questions become specs q1, q2, and q3")
     func questionnaireShape() {
         let questionnaire = Runner.makeQuestionnaire(Self.questions)
-        #expect(questionnaire.specs.map(\.id) == ["q1", "q2"])
+        #expect(questionnaire.specs.map(\.id) == ["q1", "q2", "q3"])
         #expect(questionnaire.specs.map(\.instructions) == [
             .text("Which team owns this ticket?"),
             .text("How urgent is it?"),
+            .text("Should we issue a refund?"),
         ])
 
         guard case .choice(let team) = questionnaire.specs[0].kind,
-              case .rating(let urgency) = questionnaire.specs[1].kind
+              case .rating(let urgency) = questionnaire.specs[1].kind,
+              case .verdict(let ifTrue, let ifFalse) = questionnaire.specs[2].kind
         else {
-            Issue.record("The first question must be a choice and the second a rating.")
+            Issue.record("The three questions must be a choice, a rating, and a verdict.")
             return
         }
         #expect(team.map(\.id) == ["shipping", "returns", "billing"])
@@ -78,14 +91,36 @@ struct RunnerTests {
             "Customer problem, but customer not blocked",
             "urgent",
         ])
+        // A bare yes or no value is a label, so it sends no criterion.
+        #expect(ifTrue == nil)
+        #expect(ifFalse == nil)
     }
 
-    @Test("A choice question and a rating question make one request")
+    @Test("A described yes or no side sends its description as the criterion")
+    func describedVerdictSpec() {
+        let question = DecideCore.Question(
+            instructions: "Should we issue a refund?",
+            kind: .verdict(
+                yes: DecideCore.Option(id: "Yes", description: "The policy allows it"),
+                no: DecideCore.Option(id: "No", description: "The policy forbids it")
+            )
+        )
+        let questionnaire = Runner.makeQuestionnaire([question])
+
+        guard case .verdict(let ifTrue, let ifFalse) = questionnaire.specs[0].kind else {
+            Issue.record("The question must be a verdict.")
+            return
+        }
+        #expect(ifTrue?.summary == "The policy allows it")
+        #expect(ifFalse?.summary == "The policy forbids it")
+    }
+
+    @Test("A choice, a rating, and a verdict make one request")
     func oneRequest() async throws {
         let box = RequestBox()
         let model = ScriptedModel { request in
             box.record(request)
-            return Self.bothAnswers
+            return Self.allAnswers
         }
         let session = DecisionSession(model: model)
 
@@ -93,26 +128,116 @@ struct RunnerTests {
 
         #expect(model.callCount == 1)
         let request = try #require(box.request)
-        #expect(request.questionnaire.specs.count == 2)
+        #expect(request.questionnaire.specs.count == 3)
         #expect(request.state == .text(Self.context))
     }
 
     @Test("The outcomes come back in question order")
     func outcomeOrder() async throws {
-        let model = ScriptedModel(answering: Self.bothAnswers)
+        let model = ScriptedModel(answering: Self.allAnswers)
         let session = DecisionSession(model: model)
 
         let outcomes = try await Runner.decide(
             Self.questions, about: Self.context, using: session
         )
 
-        #expect(outcomes.map(\.questionID) == ["q1", "q2"])
-        // The rating answers with the id of its most likely level.
-        #expect(outcomes.map(\.answer) == ["returns", "somewhat_urgent"])
+        #expect(outcomes.map(\.questionID) == ["q1", "q2", "q3"])
+        // The rating answers with the id of its most likely level, and the
+        // verdict with its yes value, because P(yes) is 0.87.
+        #expect(outcomes.map(\.answer) == ["returns", "somewhat_urgent", "Yes"])
         #expect(outcomes[0].probabilities == Self.teamProbabilities)
         #expect(outcomes[1].probabilities == Self.urgencyByLevel)
         #expect(outcomes[0].confidence == 0.91)
         #expect(outcomes[1].confidence == 0.78)
+    }
+
+    @Test("A verdict answers with the yes value from 0.5 up, the no value below")
+    func verdictThreshold() async throws {
+        for (probability, answer) in [(0.87, "Yes"), (0.3, "No"), (0.5, "Yes")] {
+            let session = DecisionSession(
+                model: ScriptedModel(
+                    answering: Self.answers(
+                        urgency: .rating(
+                            score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 0.78
+                        ),
+                        refund: .verdict(probability: probability)
+                    )
+                )
+            )
+
+            let outcomes = try await Runner.decide(
+                Self.questions, about: Self.context, using: session
+            )
+
+            #expect(outcomes[2].answer == answer)
+        }
+    }
+
+    @Test("A verdict carries both values and the library's confidence")
+    func verdictProbabilities() async throws {
+        let session = DecisionSession(model: ScriptedModel(answering: Self.allAnswers))
+
+        let outcomes = try await Runner.decide(
+            Self.questions, about: Self.context, using: session
+        )
+
+        #expect(outcomes[2].probabilities["Yes"] == 0.87)
+        let no = try #require(outcomes[2].probabilities["No"])
+        // 1 - 0.87 is a floating-point result, so it needs a tolerance.
+        #expect(abs(no - 0.13) < 1e-9)
+        #expect(outcomes[2].confidence == AnswerRecord.verdict(probability: 0.87).confidence)
+        // The library's formula is abs(2p - 1).
+        #expect(abs(outcomes[2].confidence - 0.74) < 1e-9)
+    }
+
+    @Test("A probability outside 0 to 1 is a malformed response")
+    func probabilityOffTheScale() async {
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Self.answers(
+                    urgency: .rating(
+                        score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 0.78
+                    ),
+                    refund: .verdict(probability: 1.2)
+                )
+            )
+        )
+
+        let error = await #expect(throws: DecisionError.self) {
+            _ = try await Runner.decide(Self.questions, about: Self.context, using: session)
+        }
+
+        guard case .malformedResponse(let message) = error else {
+            Issue.record("Expected a malformed response, got \(String(describing: error)).")
+            return
+        }
+        #expect(message == "The answer for q3 has probability 1.2, outside 0 to 1.")
+    }
+
+    @Test("A choice under a verdict question is a malformed response")
+    func choiceUnderVerdict() async {
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Self.answers(
+                    urgency: .rating(
+                        score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 0.78
+                    ),
+                    refund: .choice(
+                        reported: "Yes", probabilities: ["Yes": 0.9, "No": 0.1], confidence: 0.9
+                    )
+                )
+            )
+        )
+
+        let error = await #expect(throws: DecisionError.self) {
+            _ = try await Runner.decide(Self.questions, about: Self.context, using: session)
+        }
+
+        guard case .malformedResponse(let message) = error else {
+            Issue.record("Expected a malformed response, got \(String(describing: error)).")
+            return
+        }
+        #expect(message == "The answer for q3 is not a verdict.")
     }
 
     @Test("A record that reports no confidence takes the library's number")
@@ -155,6 +280,7 @@ struct RunnerTests {
                     reported: "returns", probabilities: ["returns": 0.7, "shipping": 0.3], confidence: nil
                 ),
                 "q2": .rating(score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 0.78),
+                "q3": .verdict(probability: Self.refundProbability),
             ],
             quality: .calibrated
         )
@@ -168,12 +294,30 @@ struct RunnerTests {
         #expect(outcomes[0].probabilities == ["returns": 0.7, "shipping": 0.3, "billing": 0])
     }
 
+    @Test("A verdict under a rating question is a malformed response")
+    func verdictUnderRating() async {
+        let session = DecisionSession(
+            model: ScriptedModel(answering: Self.answers(urgency: .verdict(probability: 0.9)))
+        )
+
+        let error = await #expect(throws: DecisionError.self) {
+            _ = try await Runner.decide(Self.questions, about: Self.context, using: session)
+        }
+
+        guard case .malformedResponse(let message) = error else {
+            Issue.record("Expected a malformed response, got \(String(describing: error)).")
+            return
+        }
+        #expect(message == "The answer for q2 is not a rating.")
+    }
+
     @Test("A rating under a choice question is a malformed response")
     func ratingUnderChoice() async {
         let answers = Answers(
             records: [
                 "q1": .rating(score: 1.0, probabilities: [0: 0.5, 1: 0.5], confidence: nil),
                 "q2": .rating(score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 0.78),
+                "q3": .verdict(probability: Self.refundProbability),
             ],
             quality: .calibrated
         )
@@ -281,6 +425,7 @@ struct RunnerTests {
                 "q2": .rating(
                     score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 0.78
                 ),
+                "q3": .verdict(probability: Self.refundProbability),
             ],
             quality: .calibrated
         )
