@@ -36,7 +36,7 @@ $ decide --context @ticket.txt \
 {"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"returns":0.91,"shipping":0.06,"billing":0.03}}
 ```
 
-### Leveling
+### Levelling
 
 Choose a level on a linear scale, where each level is "more of something" than the last:
 
