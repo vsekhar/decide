@@ -257,6 +257,15 @@ $ decide --context ticket=@ticket.txt \
  "refund":{"kind":"verdict","answer":true,"probability":0.87}}
 ```
 
+## Install
+
+```sh
+brew install vsekhar/tap/decide
+```
+
+Homebrew builds `decide` from source. That needs macOS 15 or later and
+Xcode 26.6 or later.
+
 ## Setup
 
 The model and API key are read from the environment. The model is
