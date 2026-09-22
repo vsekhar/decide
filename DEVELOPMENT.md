@@ -91,9 +91,10 @@ each bump. Tags are bare versions, like the library's.
    set-url` in `$(brew --repository vsekhar/tap)`.
 
 3. Wait for the pull request's `brew test-bot` run. It builds the formula
-   from source on the oldest supported macOS, runs `brew test`, and keeps
-   the bottle as an artifact. A red run means the bump is wrong. Fix it
-   on the branch.
+   from source on macOS 26, runs `brew test`, and keeps the bottle as an
+   artifact. A red run means the bump is wrong. Fix it on the branch. The
+   bottle serves macOS 26 and later; macOS 15 builds from source, and the
+   workflow file says why the macOS 15 runner cannot build it.
 
 4. Publish. This uploads the bottle to the tap's `bottles` release, writes
    the bottle block into the formula, commits to main, and closes the
