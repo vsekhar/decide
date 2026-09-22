@@ -264,7 +264,8 @@ brew install vsekhar/tap/decide
 ```
 
 On Apple silicon with macOS 15 or later, Homebrew installs a prebuilt
-binary. Elsewhere it builds from source, which needs Xcode 26.3 or later.
+binary. Elsewhere it builds from source, which needs Swift 6.2 or later.
+The Xcode 26 Command Line Tools are enough; Xcode itself is not needed.
 
 ## Setup
 
