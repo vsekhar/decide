@@ -81,8 +81,14 @@ each bump. Tags are bare versions, like the library's.
 
    ```sh
    brew tap vsekhar/tap
-   brew bump-formula-pr --no-fork --version 0.2.0 vsekhar/tap/decide
+   HOMEBREW_GITHUB_API_TOKEN="$(gh auth token)" \
+     brew bump-formula-pr --no-fork --version 0.2.0 vsekhar/tap/decide
    ```
+
+   The token opens the pull request. The push goes through the tap
+   clone's `origin`, so that remote must be one you can push to; set it
+   to `git@github.com:vsekhar/homebrew-tap.git` once with `git remote
+   set-url` in `$(brew --repository vsekhar/tap)`.
 
 3. Wait for the pull request's `brew test-bot` run. It builds the formula
    from source on the oldest supported macOS, runs `brew test`, and keeps
