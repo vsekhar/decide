@@ -263,8 +263,8 @@ $ decide --context ticket=@ticket.txt \
 brew install vsekhar/tap/decide
 ```
 
-Homebrew builds `decide` from source. That needs macOS 15 or later and
-Xcode 26.6 or later.
+On Apple silicon with macOS 15 or later, Homebrew installs a prebuilt
+binary. Elsewhere it builds from source, which needs Xcode 26.3 or later.
 
 ## Setup
 

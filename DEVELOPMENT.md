@@ -64,7 +64,8 @@ what is next, and the design notes behind each change.
 
 Users install with Homebrew from the tap at
 https://github.com/vsekhar/homebrew-tap. A release is a tag here plus a
-formula bump there. Tags are bare versions, like the library's.
+formula bump there. The tap's CI builds a bottle, a prebuilt binary, for
+each bump. Tags are bare versions, like the library's.
 
 1. Tag the commit, push it, and publish the release:
 
@@ -74,24 +75,32 @@ formula bump there. Tags are bare versions, like the library's.
    gh release create 0.2.0 --title "decide 0.2.0" --notes "..."
    ```
 
-2. Point the formula at the new tag. Homebrew rewrites `url` and `sha256`
-   in the tap's checkout, or edit those two lines by hand:
+2. Open a pull request on the tap that points the formula at the new tag.
+   Homebrew rewrites `url` and `sha256` and opens the pull request, or do
+   the same by hand on a branch:
 
    ```sh
    brew tap vsekhar/tap
-   brew bump-formula-pr --write-only --version 0.2.0 vsekhar/tap/decide
+   brew bump-formula-pr --no-fork --version 0.2.0 vsekhar/tap/decide
    ```
 
-3. Check the formula, then commit and push from the tap's checkout:
+3. Wait for the pull request's `brew test-bot` run. It builds the formula
+   from source on the oldest supported macOS, runs `brew test`, and keeps
+   the bottle as an artifact. A red run means the bump is wrong. Fix it
+   on the branch.
+
+4. Publish. This uploads the bottle to the tap's `bottles` release, writes
+   the bottle block into the formula, commits to main, and closes the
+   pull request:
 
    ```sh
-   brew install --build-from-source vsekhar/tap/decide
-   brew test decide
-   brew audit --strict --online decide
-   cd "$(brew --repository vsekhar/tap)"
-   git commit -am "decide 0.2.0" && git push
+   gh workflow run publish.yml -R vsekhar/homebrew-tap -f pull_request=<number>
    ```
+
+Do not push a formula change straight to main. Nothing builds a bottle
+for it, so users would build from source.
 
 Homebrew-core is the goal once this repository meets its notability bar:
 225 stars, or 90 forks or watchers, for a self-submission. The formula
-then moves there in a "decide 0.2.0 (new formula)" pull request.
+then moves there in a "decide 0.2.0 (new formula)" pull request without
+the bottle block. Core's CI builds its own bottles.
