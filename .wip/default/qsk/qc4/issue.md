@@ -2,9 +2,11 @@
 priority: p2
 type: task
 created: 2026-09-23T01:04:39-04:00
-updated: 2026-09-23T01:04:39-04:00
+updated: 2026-09-23T01:25:20-04:00
 blocked-on:
   - jt3
+may-unblock:
+  - rqr
 ---
 
 # --questions @file: splice a question file's tokens into the command line
@@ -29,7 +31,7 @@ Part of the `--questions` parent; blocked on the tokenizer sibling (`QuestionFil
 
 ## Approach
 
-**Expansion.** `public static func expanding(_ arguments: [String], read: (String) throws(ConfigReadError) -> String?) throws -> [String]` on `QuestionFile`. It returns the arguments unchanged when the line holds `--version`, `--help`, `-h`, or `--set-config`, using the same predicate `parse` uses for its pre-scan (factor it into `CommandLineParser.takesTheLine(_:)`, internal), so help and version still win over a bad file and `--set-config` still reports "runs alone". Otherwise it walks the arguments: `--questions <value>` and `--questions=<value>` (the `flagValue` shape; make that helper internal so this reuses it) are replaced by the value's tokens; every other token passes through. A value `@<path>` reads the file through `read`: nil is `ConfigError(path, 0, "no such file")`; `.unreadable` and `.notUTF8` map as `ConfigFiles.error(_:at:)` does (reuse it). A value with no `@` is the text itself, tokenized with the path `"--questions"` for messages. `@` alone throws `UsageError("--questions @ names no file")`; a missing value is `flagValue`'s `--questions needs a value`. A text whose first token starts with `{` throws `ConfigError(path, line, "JSON question files are not supported yet")`.
+**Expansion.** `public static func expanding(_ arguments: [String], read: (String) throws(ConfigReadError) -> String?) throws -> [Item]` on `QuestionFile`, where `public enum Item: Equatable, Sendable { case token(String); case questions([Question]) }`. A command-line argument and every token of a text file become `.token`; `.questions` is for JSON files, which the JSON child issue adds, and this issue never produces it. `CommandLineParser.parse(_ arguments: [String])` stays and becomes a wrapper over a new `public static func parse(items: [Item])`, whose main loop treats a `.questions` item as finished questions appended at that position; a question flag (`--option`, `--level`, `--yes`, `--no`, `--min-confidence`) right after a `.questions` item throws `UsageError("<flag> after --questions belongs to no question")`, and `--quiet`'s one-yes/no-question rule counts them. This issue adds the enum, the wrapper, and the `.questions` handling with a unit test that feeds `parse(items:)` a `.questions` item directly, so the seam is proved before any JSON exists. It returns the arguments unchanged when the line holds `--version`, `--help`, `-h`, or `--set-config`, using the same predicate `parse` uses for its pre-scan (factor it into `CommandLineParser.takesTheLine(_:)`, internal), so help and version still win over a bad file and `--set-config` still reports "runs alone". Otherwise it walks the arguments: `--questions <value>` and `--questions=<value>` (the `flagValue` shape; make that helper internal so this reuses it) are replaced by the value's tokens; every other token passes through. A value `@<path>` reads the file through `read`: nil is `ConfigError(path, 0, "no such file")`; `.unreadable` and `.notUTF8` map as `ConfigFiles.error(_:at:)` does (reuse it). A value with no `@` is the text itself, tokenized with the path `"--questions"` for messages. `@` alone throws `UsageError("--questions @ names no file")`; a missing value is `flagValue`'s `--questions needs a value`. A text whose first token starts with `{` throws `ConfigError(path, line, "JSON question files are not supported yet")`.
 
 Each file's tokens are checked before splicing: the first token may not start with `-` (`ConfigError(path, line, "a question file starts with a question, not a flag")`); every later token that starts with `-` must be `--option`, `--level`, `--yes`, `--no`, or `--min-confidence`, alone or in the `=value` form, else `ConfigError(path, line, "<flag> is not allowed in a question file")`; the token after a bare value flag is its value and is not checked. A file with no tokens contributes nothing. The tokens' texts are spliced in; their lines serve only these messages.
 
@@ -66,3 +68,9 @@ Child of the `--questions` parent; blocked on the tokenizer sibling. Reuses `Con
 - [ ] A missing, unreadable, non-UTF-8, JSON, flag-first, or disallowed-flag file exits 10, names the file (and line where one applies), and prints nothing on stdout.
 - [ ] `--help` and the README describe the flag and the file format.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 01:25:20-04:00 @ git:bb3f1e4+local_
+
+Amended 2026-09-23 while filing JSON question files: the expansion returns items, not strings, so a JSON file's questions can be spliced as finished questions. See the Approach's Expansion paragraph. This issue produces only .token items; the JSON child of the JSON parent produces .questions and is blocked on this issue.
