@@ -69,7 +69,7 @@ yes
 $ decide --context ticket=@ticket.txt \
          --context refund_policy=@refund_policy.txt \
          "Should we issue a refund?" \
-         --yes yes="Allowed by refund_policy and requested in ticket" \
+         --yes yes="Allowed by refund_policy and requested in ticket"
 no
 ```
 
