@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:25:20-04:00
-updated: 2026-09-23T01:35:01-04:00
+updated: 2026-09-23T04:12:17-04:00
 may-unblock:
   - hah
   - byu
@@ -49,3 +49,34 @@ Parent: JSON question files. The JSON decoder child is blocked on this issue. wi
 - [ ] `Question` and `Option` hold name, rules, `notFor`, `examples`, and `signals`, with defaults, and every existing test passes unchanged.
 - [ ] `makeQuestionnaire` sends names as ids, rules as object instructions, and the criterion fields, all pinned by tests; `Runner.decide` reads a named answer back.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean and `swift test --skip DecideLive` passes.
+
+---
+
+_📝 Noted on 2026-09-23 03:58:30-04:00 @ git:40ae06a+local_
+
+Design record (2026-09-23), the decisions the Approach left open. Implemented as written there, plus:
+1. Two private helpers in Runner build criteria: criterion(_ option: Option) -> Criterion always builds Criterion(description ?? id, notFor:, examples:, signals:), for options and levels; sideCriterion(_ side: Option) -> Criterion? returns nil when the side has no description, no notFor, no examples, and no signals, else criterion(side). So a bare --yes or --no label still sends no criterion, as today.
+2. identifier(for:at:) is `question.name ?? "q\(index + 1)"`; N is the position in the run, so a named question does not shift its neighbours' numbers. Both makeQuestionnaire and decide call it.
+3. Question.name's doc does not say where the name comes from (wip/byu and wip/hah each add a source); it says what the name is for.
+4. The instructions object is built as State: .object(["question": .text(instructions), "rules": .array(rules.map(State.text))]).
+5. Existing tests are untouched; they prove the defaults. New RunnerTests build questions with the new fields directly.
+6. wip/ndr landed first, so Runner.decide already takes State?; nothing to reconcile.
+
+---
+
+_📝 Noted on 2026-09-23 04:03:11-04:00 @ git:40ae06a+local_
+
+Implementation (2026-09-23): a worker implemented the Approach and the design record as written; no open question came up. Beyond the record:
+- The instructions State is built into a local before the QuestionSpec call, for width.
+- Both inits are one parameter per line now, as Invocation.init already is.
+- Tests 1 and 2 share a static namedQuestions helper (the team question named "team" and the unnamed urgency question); test 4 checks the rich shipping option and the bare billing option from one questionnaire.
+- Outcome.questionID's doc now says "its name, or q1, q2, and so on for an unnamed question"; the worker flagged it and I changed it.
+Checks: warnings-as-errors build clean; `swift test --skip DecideLive` 288 tests in 8 suites pass; no existing test changed.
+
+---
+
+_📝 Noted on 2026-09-23 04:12:17-04:00 @ git:40ae06a+local_
+
+Summary (2026-09-23): done. Question has name and rules; Option has notFor, examples, and signals; makeQuestionnaire sends the name as the spec id (q<N> by position otherwise), rules as {"question", "rules"} object instructions, and every criterion field; decide looks answers up by the same id. Today's command lines produce a byte-identical questionnaire (the verifier dumped 15 lines against HEAD in a scratch copy).
+Verifier: all three acceptance criteria hold, no blockers; a live probe with rules and full criteria was accepted by the real model, the named answer came back under its name. Acted on one note: verdictSideCriterion now also pins a notFor-only and a signals-only side, and a mutant on either guard term fails it. Notes for the name sources (wip/byu, wip/hah): the unsure message still says "question N", by position, as byu's Approach intends; a name equal to a positional id (naming question 1 "q2" beside an unnamed question 2) is caught by the library's preflight, exit 10 "invalid question q2: Two questions share the id."; --show-names already prints a name, so byu adds that test.
+Final: warnings-as-errors build clean; `swift test` with .env sourced, 292 tests in 9 suites passed, live included.

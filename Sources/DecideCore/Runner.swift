@@ -2,7 +2,8 @@ import DecisionModels
 
 /// One answered question, as the tool prints it.
 public struct Outcome: Sendable, Equatable {
-    /// The id the question ran under: `q1`, `q2`, and so on.
+    /// The id the question ran under: its name, or `q1`, `q2`, and so on
+    /// for an unnamed question.
     public let questionID: String
     /// The id of the option or level the model picked, or the yes or no
     /// value.
@@ -30,33 +31,38 @@ public struct Outcome: Sendable, Equatable {
 public enum Runner {
     /// Turns the parsed questions into one questionnaire.
     ///
-    /// Ids are `q1` to `qN`, in question order. An option or level with no
-    /// description uses its id as the criterion summary, because the id is
-    /// what the model sees either way. Levels go on the wire as criteria in
-    /// order; the read maps indices back to ids. A yes or no value with no
-    /// description sends no criterion, because the value is a label, not a
-    /// description of the case.
+    /// A named question runs under its name; an unnamed one under `q<N>`,
+    /// N its position in the run, so a named question does not shift the
+    /// numbers of the others. Rules make the instructions an object,
+    /// `{"question": ..., "rules": [...]}`; without rules the instructions
+    /// are the text alone. An option or level with no description uses its
+    /// id as the criterion summary, because the id is what the model sees
+    /// either way, and every criterion carries the option's `notFor`,
+    /// `examples`, and `signals`. Levels go on the wire as criteria in
+    /// order; the read maps indices back to ids. A yes or no side sends a
+    /// criterion only when it has a description or one of those fields,
+    /// because a bare value is a label, not a description of the case.
     public static func makeQuestionnaire(_ questions: [Question]) -> Questionnaire {
         Questionnaire(questions.enumerated().map { index, question in
             let kind: QuestionSpec.Kind = switch question.kind {
             case .choice(let options):
                 .choice(options: options.map { option in
-                    QuestionSpec.OptionSpec(
-                        id: option.id,
-                        criterion: Criterion(option.description ?? option.id)
-                    )
+                    QuestionSpec.OptionSpec(id: option.id, criterion: criterion(option))
                 })
             case .rating(let levels):
-                .rating(levels: levels.map { Criterion($0.description ?? $0.id) })
+                .rating(levels: levels.map(criterion))
             case .verdict(let yes, let no):
-                .verdict(
-                    ifTrue: yes.description.map { Criterion($0) },
-                    ifFalse: no.description.map { Criterion($0) }
-                )
+                .verdict(ifTrue: sideCriterion(yes), ifFalse: sideCriterion(no))
             }
+            let instructions: State = question.rules.isEmpty
+                ? .text(question.instructions)
+                : .object([
+                    "question": .text(question.instructions),
+                    "rules": .array(question.rules.map(State.text)),
+                ])
             return QuestionSpec(
-                id: identifier(at: index),
-                instructions: .text(question.instructions),
+                id: identifier(for: question, at: index),
+                instructions: instructions,
                 kind: kind
             )
         })
@@ -91,7 +97,7 @@ public enum Runner {
             answers = try await session.decide(questionnaire)
         }
         let outcomes: [Outcome] = try questions.indices.map { index in
-            let id = identifier(at: index)
+            let id = identifier(for: questions[index], at: index)
             guard let record = answers.records[id] else {
                 throw DecisionError.malformedResponse("The response holds no answer for \(id).")
             }
@@ -202,8 +208,29 @@ public enum Runner {
         )
     }
 
-    /// The id of the question at `index`. The first question is `q1`.
-    private static func identifier(at index: Int) -> String {
-        "q\(index + 1)"
+    /// The id the question at `index` runs under: its name, or `q<N>` for
+    /// the first, second, and so on.
+    private static func identifier(for question: Question, at index: Int) -> String {
+        question.name ?? "q\(index + 1)"
+    }
+
+    /// The criterion for an option or a level: the description, or the id
+    /// when there is none, with the option's other fields.
+    private static func criterion(_ option: Option) -> Criterion {
+        Criterion(
+            option.description ?? option.id,
+            notFor: option.notFor,
+            examples: option.examples,
+            signals: option.signals
+        )
+    }
+
+    /// The criterion for a yes or no side, or nil for a side that is only
+    /// a label: no description, no `notFor`, no examples, no signals.
+    private static func sideCriterion(_ side: Option) -> Criterion? {
+        guard side.description != nil || side.notFor != nil
+                || !side.examples.isEmpty || !side.signals.isEmpty
+        else { return nil }
+        return criterion(side)
     }
 }

@@ -94,11 +94,26 @@ public struct Question: Sendable, Equatable {
     /// The confidence the answer needs, from `--min-confidence`. `nil` means
     /// no bar, so an absent flag never makes a run unsure.
     public var minimumConfidence: Double?
+    /// The question's name: the id it runs under, and the key `--json`
+    /// output will use. nil for an unnamed question, which runs as `q<N>`,
+    /// N its position in the run.
+    public var name: String?
+    /// Rules the model applies with the question, from a JSON file's
+    /// structured instructions. Empty for a plain question.
+    public var rules: [String]
 
-    public init(instructions: String, kind: Kind, minimumConfidence: Double? = nil) {
+    public init(
+        instructions: String,
+        kind: Kind,
+        minimumConfidence: Double? = nil,
+        name: String? = nil,
+        rules: [String] = []
+    ) {
         self.instructions = instructions
         self.kind = kind
         self.minimumConfidence = minimumConfidence
+        self.name = name
+        self.rules = rules
     }
 
     /// The kind of question. The flags after the question decide it:
@@ -126,9 +141,27 @@ public struct Option: Sendable, Equatable {
     /// What the option, level, or side covers, from `id=description`. `nil`
     /// when the user gave only the id.
     public var description: String?
+    /// What the option, level, or side does not cover, from a JSON file's
+    /// `not_for`. nil when not given.
+    public var notFor: String?
+    /// Short examples that belong to it, from a JSON file's `examples`.
+    /// Empty when not given.
+    public var examples: [String]
+    /// Signals in the context that point to it, from a JSON file's
+    /// `signals`. Empty when not given.
+    public var signals: [String]
 
-    public init(id: String, description: String? = nil) {
+    public init(
+        id: String,
+        description: String? = nil,
+        notFor: String? = nil,
+        examples: [String] = [],
+        signals: [String] = []
+    ) {
         self.id = id
         self.description = description
+        self.notFor = notFor
+        self.examples = examples
+        self.signals = signals
     }
 }

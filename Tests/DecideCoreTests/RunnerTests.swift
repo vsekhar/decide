@@ -74,6 +74,17 @@ struct RunnerTests {
         )
     }
 
+    /// The team question under the name `team`, and the unnamed urgency
+    /// question beside it.
+    static let namedQuestions = [
+        DecideCore.Question(
+            instructions: questions[0].instructions,
+            kind: questions[0].kind,
+            name: "team"
+        ),
+        questions[1],
+    ]
+
     /// The three questions again, each with the bar at its place. `nil` is no
     /// bar, so a test gates only the question it cares about.
     static func questions(bars: [Double?]) -> [DecideCore.Question] {
@@ -752,6 +763,154 @@ struct RunnerTests {
             return
         }
         #expect(message == "Question q2 expects a rating, but the record holds a choice.")
+    }
+
+    @Test("A named question runs under its name and its neighbour keeps its position number")
+    func namedQuestionIdentifier() {
+        let questionnaire = Runner.makeQuestionnaire(Self.namedQuestions)
+
+        #expect(questionnaire.specs.map(\.id) == ["team", "q2"])
+    }
+
+    @Test("A named answer is read back under the name")
+    func namedAnswerLookup() async throws {
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Answers(
+                    records: ["team": Self.teamAnswer, "q2": Self.urgencyAnswer],
+                    quality: .calibrated
+                )
+            )
+        )
+
+        let outcomes = try await Runner.decide(
+            Self.namedQuestions, about: Self.context, using: session
+        )
+
+        #expect(outcomes.map(\.questionID) == ["team", "q2"])
+        #expect(outcomes.map(\.answer) == ["returns", "somewhat_urgent"])
+    }
+
+    @Test("Rules make the instructions an object")
+    func ruleInstructions() {
+        let question = DecideCore.Question(
+            instructions: "Should we issue a refund?",
+            kind: .verdict(yes: DecideCore.Option(id: "Yes"), no: DecideCore.Option(id: "No")),
+            rules: ["Apply the policy.", "When silent, answer no."]
+        )
+
+        let questionnaire = Runner.makeQuestionnaire([question])
+
+        #expect(
+            questionnaire.specs[0].instructions
+                == .object([
+                    "question": .text("Should we issue a refund?"),
+                    "rules": .array([.text("Apply the policy."), .text("When silent, answer no.")]),
+                ])
+        )
+
+        // The same question without rules sends the text alone.
+        let plain = DecideCore.Question(
+            instructions: "Should we issue a refund?",
+            kind: .verdict(yes: DecideCore.Option(id: "Yes"), no: DecideCore.Option(id: "No"))
+        )
+        #expect(
+            Runner.makeQuestionnaire([plain]).specs[0].instructions
+                == .text("Should we issue a refund?")
+        )
+    }
+
+    @Test("An option's fields become its criterion")
+    func optionCriterion() {
+        let question = DecideCore.Question(
+            instructions: "Which team owns this ticket?",
+            kind: .choice([
+                DecideCore.Option(
+                    id: "shipping",
+                    description: "Delivery issues",
+                    notFor: "Returns",
+                    examples: ["Late package"],
+                    signals: ["carrier"]
+                ),
+                DecideCore.Option(id: "billing"),
+            ])
+        )
+        let questionnaire = Runner.makeQuestionnaire([question])
+
+        guard case .choice(let options) = questionnaire.specs[0].kind else {
+            Issue.record("The question must be a choice.")
+            return
+        }
+        #expect(
+            options[0].criterion
+                == Criterion(
+                    "Delivery issues",
+                    notFor: "Returns",
+                    examples: ["Late package"],
+                    signals: ["carrier"]
+                )
+        )
+        // A bare option still sends its id and nothing else.
+        #expect(options[1].criterion == Criterion("billing"))
+    }
+
+    @Test("A level's fields become its criterion")
+    func levelCriterion() {
+        let question = DecideCore.Question(
+            instructions: "How urgent is it?",
+            kind: .rating([
+                DecideCore.Option(id: "not_urgent"),
+                DecideCore.Option(
+                    id: "urgent",
+                    description: "Customer blocked",
+                    signals: ["stuck", "today"]
+                ),
+            ])
+        )
+        let questionnaire = Runner.makeQuestionnaire([question])
+
+        guard case .rating(let levels) = questionnaire.specs[0].kind else {
+            Issue.record("The question must be a rating.")
+            return
+        }
+        #expect(levels[1] == Criterion("Customer blocked", signals: ["stuck", "today"]))
+    }
+
+    @Test("A yes or no side sends a criterion when it has any field")
+    func verdictSideCriterion() {
+        let question = DecideCore.Question(
+            instructions: "Should we issue a refund?",
+            kind: .verdict(
+                yes: DecideCore.Option(id: "Yes", examples: ["Wants money back"]),
+                no: DecideCore.Option(id: "No")
+            )
+        )
+        let questionnaire = Runner.makeQuestionnaire([question])
+
+        guard case .verdict(let ifTrue, let ifFalse) = questionnaire.specs[0].kind else {
+            Issue.record("The question must be a verdict.")
+            return
+        }
+        // The yes side has examples but no description, so its id is the
+        // summary. The no side is only a label.
+        #expect(ifTrue == Criterion("Yes", examples: ["Wants money back"]))
+        #expect(ifFalse == nil)
+
+        // Each of the other two fields alone makes a criterion too.
+        for (side, criterion) in [
+            (DecideCore.Option(id: "Yes", notFor: "Store credit"), Criterion("Yes", notFor: "Store credit")),
+            (DecideCore.Option(id: "Yes", signals: ["refund"]), Criterion("Yes", signals: ["refund"])),
+        ] {
+            let alone = DecideCore.Question(
+                instructions: "Should we issue a refund?",
+                kind: .verdict(yes: side, no: DecideCore.Option(id: "No"))
+            )
+            guard case .verdict(let ifTrue, _) = Runner.makeQuestionnaire([alone]).specs[0].kind else {
+                Issue.record("The question must be a verdict.")
+                return
+            }
+            #expect(ifTrue == criterion)
+        }
     }
 }
 

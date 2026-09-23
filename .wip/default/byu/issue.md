@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:35:01-04:00
-updated: 2026-09-23T01:35:01-04:00
+updated: 2026-09-23T03:59:52-04:00
 blocked-on:
   - g3q
 ---
@@ -71,3 +71,16 @@ Blocked on wip/g3q. Shares the identifier rule with wip/ndr and wip/hah, and the
 - [ ] Before any question, twice on one question, an invalid name, and a name used twice in the run each exit 10 with the message above and nothing on stdout.
 - [ ] `--help` and the README show the flag.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 03:59:52-04:00 @ git:40ae06a+local_
+
+Design record (2026-09-23), the decisions the Approach left open. Implemented as written there, plus:
+1. The identifier rule already exists: wip/ndr added CommandLineParser.isName(_:) for context names. It is renamed isIdentifier(_:) and made internal (no `private`) so wip/hah's JSON decoder can call it from its own file; the context-name path calls it by the new name. The rule and the message wording ("a letter or _ then letters, digits, or _") are unchanged.
+2. setName(_:to:) mirrors setMinimumConfidence: last question, once, valid. Its messages, verbatim: `--name before any question`; `question N ("...") repeats --name`; `question N ("...") has an invalid name "x": a letter or _ then letters, digits, or _`. An empty value (`--name=`) is an invalid name with an empty string in the quotes, not a separate message.
+3. The run-wide check is a private static func uniqueNames(_ questions: [Question]) throws(UsageError), called right after `finished` is built and before the --show-names/--quiet checks. The first name seen on two questions throws `question name "team" is used twice`. wip/rqr will call the same function after splicing file questions in.
+4. Question.name's doc (from g3q) says what a name is for, not where it comes from, so no doc change there.
+5. wip/g3q landed first and made the spec id `name ?? "q<N>"`, so --name flows to the request with no Runner change.
+6. wip/qc4 (text question files) has not landed: its allowed-flag list gains --name when it does; noted here for qc4.
+7. The README example goes after the batch example's output (`yes`) and before "# Compose context from multiple sources", inside the same code block, blank line each side.

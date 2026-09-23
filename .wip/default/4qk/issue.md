@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T02:00:34-04:00
-updated: 2026-09-23T02:15:27-04:00
+updated: 2026-09-23T04:01:10-04:00
 ---
 
 # --json: print the answers as one JSON object keyed by question name
@@ -80,3 +80,20 @@ wip/3tz (`--show-names`) shares the conflict check; wip/byu and wip/g3q give the
 _📝 Noted on 2026-09-23 02:15:27-04:00 @ git:55cbb66+local_
 
 Amended 2026-09-23 on the user's decision: answer is the printed string for every kind; every kind has confidence and probabilities (a verdict's keyed by its two labels, yes first); score is a rating's field only and verdict (the boolean) a verdict's field only; a choice has no field of its own. The earlier boolean answer, label, and probability fields are gone. The Emitter bullets, the README paragraph, the tests, and the acceptance criteria now say this.
+
+---
+
+_📝 Noted on 2026-09-23 04:01:10-04:00 @ git:40ae06a+local_
+
+Design record (2026-09-23), the decisions the Approach left open, and one correction to it.
+
+Correction. The Approach builds the line with JSONEncoder and hand-written Encodable types "so the order is the encode order". That premise fails: on this Mac (Apple Swift 6.4, macOS 27) an explicit keyed-container encode of six keys printed three different key orders in three runs, so JSONEncoder does not keep insertion order, and the README's exact output could not be pinned. JSONOutput therefore writes the JSON text itself: a private escape(_:) for strings and a private object(_:) that joins already-rendered key/value fragments in the order given. Strings: `"` and `\` escaped, `\n` `\r` `\t` as those two-character forms, every other control character below 0x20 as `\u00XX`, non-ASCII and `/` raw. Numbers: Double.description, the shortest round-trip form, which gives 0.74, 0.13, 0.6, 0.8, 0.91, 1.2, 0.3 for the README's values (checked: abs(2*0.87-1) prints 0.74, 1-0.87 prints 0.13, abs(2*0.2-1) prints 0.6). Every number the emitter prints is finite: the library keeps probabilities and confidence in 0...1 and the score is the model's finite number. Bools are `true`/`false`. No Foundation import is needed.
+
+Decisions:
+1. Choice probabilities are keyed by option id in the question's declared order; rating by level id in declared order; verdict by the yes side's id then the no side's. Values are outcome.probabilities[id] ?? 0 (the runner already fills absent ones at 0).
+2. `verdict` is `outcome.answer == yes.id`. `answer` is outcome.answer for every kind.
+3. Outcome.score is a Double? set by ratingOutcome from the record's score; the other two pass nil. The init parameter goes last with default nil.
+4. Parser checks after the questions, in order: the name uniqueness check (byu), `--show-names does not go with --quiet` (3tz), `--json does not go with --quiet`, `--show-names does not go with --json`, then the --quiet one-question rule. `--json` twice is `--json was given twice`.
+5. Decide.run: `if invocation.json { print(line, terminator: "") } else if !invocation.quiet { plain loop }`; the line carries its own newline. Every error path returns before it, unchanged.
+6. wip/byu lands before this issue, so one run test names a question with --name and expects the key to be that name; the rest use q1, q2, q3.
+7. The README's question-file --json example is the JSON file's own names (team, urgency, refund), which come from wip/rqr, not built yet; the README shows the spec, and this issue only corrects its field vocabulary and key order.
