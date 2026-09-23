@@ -10,6 +10,11 @@ private func parse(_ text: String) throws -> [Entry] {
     try ConfigFile.parse(text, path: path)
 }
 
+/// Sets pairs in text as the file at `path`.
+private func edit(_ text: String, pairs: [(key: String, value: String)]) throws -> String {
+    try ConfigFile.setting(pairs, in: text, path: path)
+}
+
 /// The error a line must throw.
 private func failure(line: Int, _ problem: String) -> ConfigError {
     ConfigError(path: path, line: line, problem: problem)
@@ -366,5 +371,177 @@ struct ConfigFileTests {
         #expect(throws: failure(line: 1, "control character in a comment")) {
             try parse("# c\r")
         }
+    }
+
+    @Test("Replacing a value keeps every other byte")
+    func replacingKeepsTheRest() throws {
+        let text = """
+            # the model to use
+            DECIDE_MODEL="typesafe:jev-latest" # the newest
+
+            DECIDE_MODEL_API_KEY\t=\t"sk-test"
+
+            """
+        let result = try edit(text, pairs: [("DECIDE_MODEL", "typesafe:jev-1.13")])
+        #expect(
+            result == """
+                # the model to use
+                DECIDE_MODEL="typesafe:jev-1.13" # the newest
+
+                DECIDE_MODEL_API_KEY\t=\t"sk-test"
+
+                """
+        )
+    }
+
+    @Test("Replacing keeps the spacing around the =")
+    func replacingKeepsSpacing() throws {
+        let cases: [(text: String, result: String)] = [
+            ("DECIDE_MODEL=\"a\"\n", "DECIDE_MODEL=\"b\"\n"),
+            ("DECIDE_MODEL = \"a\"\n", "DECIDE_MODEL = \"b\"\n"),
+            ("DECIDE_MODEL\t=\t\"a\"\n", "DECIDE_MODEL\t=\t\"b\"\n"),
+            ("  DECIDE_MODEL   =   \"a\"  # why\n", "  DECIDE_MODEL   =   \"b\"  # why\n"),
+        ]
+        for (text, expected) in cases {
+            #expect(try edit(text, pairs: [("DECIDE_MODEL", "b")]) == expected, "\(text)")
+        }
+    }
+
+    @Test("A literal string's line takes a basic string")
+    func replacingALiteralString() throws {
+        let result = try edit("DECIDE_MODEL = 'a' # why\n", pairs: [("DECIDE_MODEL", "b")])
+        #expect(result == "DECIDE_MODEL = \"b\" # why\n")
+    }
+
+    @Test("Replacing keeps CRLF endings, the edited line's too")
+    func replacingKeepsCarriageReturns() throws {
+        let text = "# c\r\nDECIDE_MODEL = \"a\" # why\r\nDECIDE_MODEL_API_KEY = \"b\"\r\n"
+        let result = try edit(text, pairs: [("DECIDE_MODEL", "c")])
+        #expect(result == "# c\r\nDECIDE_MODEL = \"c\" # why\r\nDECIDE_MODEL_API_KEY = \"b\"\r\n")
+    }
+
+    @Test("A leading byte order mark survives an edit")
+    func replacingKeepsTheByteOrderMark() throws {
+        let result = try edit("\u{FEFF}DECIDE_MODEL = \"a\"\n", pairs: [("DECIDE_MODEL", "b")])
+        #expect(result == "\u{FEFF}DECIDE_MODEL = \"b\"\n")
+    }
+
+    @Test("Appending to empty text adds the line and no blank line")
+    func appendingToEmptyText() throws {
+        #expect(try edit("", pairs: [("DECIDE_MODEL", "a")]) == "DECIDE_MODEL = \"a\"\n")
+    }
+
+    @Test("Appending to text with no final line break adds one first")
+    func appendingAfterAMissingLineBreak() throws {
+        let result = try edit("DECIDE_MODEL = \"a\"", pairs: [("DECIDE_MODEL_API_KEY", "b")])
+        #expect(result == "DECIDE_MODEL = \"a\"\nDECIDE_MODEL_API_KEY = \"b\"\n")
+    }
+
+    @Test("Appending to comment-only text keeps the comments")
+    func appendingToComments() throws {
+        let result = try edit("# one\n# two\n", pairs: [("DECIDE_MODEL", "a")])
+        #expect(result == "# one\n# two\nDECIDE_MODEL = \"a\"\n")
+    }
+
+    @Test("An appended line takes the text's CRLF ending")
+    func appendingKeepsCarriageReturns() throws {
+        let result = try edit("# one\r\n", pairs: [("DECIDE_MODEL", "a")])
+        #expect(result == "# one\r\nDECIDE_MODEL = \"a\"\r\n")
+    }
+
+    @Test("Each of the five special characters is escaped and reads back")
+    func escapingTheFiveCharacters() throws {
+        let value = "a\"b\\c\nd\te\rf"
+        let result = try edit("", pairs: [("DECIDE_MODEL", value)])
+        #expect(result == #"DECIDE_MODEL = "a\"b\\c\nd\te\rf""# + "\n")
+        #expect(try parse(result) == [Entry(key: "DECIDE_MODEL", value: value, line: 1)])
+    }
+
+    @Test("A control character in a new value is refused")
+    func controlCharacterInANewValue() {
+        #expect(throws: failure(line: 0, "value has a control character")) {
+            try edit("", pairs: [("DECIDE_MODEL", "a\u{01}b")])
+        }
+    }
+
+    @Test("An empty or whitespace-only new value is refused")
+    func emptyNewValue() {
+        #expect(throws: failure(line: 0, "DECIDE_MODEL is empty")) {
+            try edit("", pairs: [("DECIDE_MODEL", "")])
+        }
+        #expect(throws: failure(line: 0, "DECIDE_MODEL is empty")) {
+            try edit("", pairs: [("DECIDE_MODEL", " \t ")])
+        }
+    }
+
+    @Test("An unknown key in a pair names the keys the tool takes")
+    func unknownNewKey() {
+        #expect(
+            throws: failure(
+                line: 0,
+                "unknown key \"DECIDE_MODE\"; the keys are DECIDE_MODEL and DECIDE_MODEL_API_KEY"
+            )
+        ) {
+            try edit("", pairs: [("DECIDE_MODE", "a")])
+        }
+    }
+
+    @Test("A key that is not bare is refused without being named")
+    func newKeyThatIsNotBare() {
+        #expect(throws: failure(line: 0, "the key is not a bare key")) {
+            try edit("", pairs: [("DECIDE MODEL", "a")])
+        }
+    }
+
+    @Test("An invalid file is refused with its line")
+    func invalidFile() {
+        #expect(throws: failure(line: 3, "DECIDE_MODEL is set twice, first on line 1")) {
+            try edit(
+                "DECIDE_MODEL = \"a\"\n# a comment\nDECIDE_MODEL = \"b\"\n",
+                pairs: [("DECIDE_MODEL", "c")]
+            )
+        }
+        #expect(throws: failure(line: 1, "tables are not supported")) {
+            try edit("[model]\nDECIDE_MODEL = \"a\"\n", pairs: [("DECIDE_MODEL", "c")])
+        }
+    }
+
+    @Test("Two pairs in one call both land, one on its line and one at the end")
+    func twoPairsInOneCall() throws {
+        let result = try edit(
+            "# c\nDECIDE_MODEL = \"a\" # why\n",
+            pairs: [("DECIDE_MODEL", "b"), ("DECIDE_MODEL_API_KEY", "sk-1")]
+        )
+        #expect(result == "# c\nDECIDE_MODEL = \"b\" # why\nDECIDE_MODEL_API_KEY = \"sk-1\"\n")
+    }
+
+    @Test("The same key twice in one call leaves the last value on one line")
+    func theSameKeyTwiceInOneCall() throws {
+        let appended = try edit(
+            "",
+            pairs: [("DECIDE_MODEL", "a"), ("DECIDE_MODEL", "b")]
+        )
+        #expect(appended == "DECIDE_MODEL = \"b\"\n")
+        let replaced = try edit(
+            "DECIDE_MODEL = \"a\"\n",
+            pairs: [("DECIDE_MODEL", "b"), ("DECIDE_MODEL", "c")]
+        )
+        #expect(replaced == "DECIDE_MODEL = \"c\"\n")
+    }
+
+    @Test("The result parses back to the new values")
+    func theResultParsesBack() throws {
+        let model = #"a"b\c"#
+        let key = "sk-\"1\"\\2"
+        let result = try edit(
+            "# c\nDECIDE_MODEL = \"a\" # why\n",
+            pairs: [("DECIDE_MODEL", model), ("DECIDE_MODEL_API_KEY", key)]
+        )
+        #expect(
+            try parse(result) == [
+                Entry(key: "DECIDE_MODEL", value: model, line: 2),
+                Entry(key: "DECIDE_MODEL_API_KEY", value: key, line: 3),
+            ]
+        )
     }
 }

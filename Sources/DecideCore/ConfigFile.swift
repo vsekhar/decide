@@ -49,6 +49,47 @@ public enum ConfigFile {
         return entries
     }
 
+    /// Sets keys in the text of a config file and keeps every other byte.
+    /// Pure: no I/O. `path` only names the file in a message.
+    ///
+    /// A key that has a line keeps that line: the key's spelling, the spacing
+    /// around the `=`, a trailing comment, and the line's own ending. Only the
+    /// value changes. A key that has no line is appended as `KEY = "value"`,
+    /// after a line break when the text lacks one at its end. Comments, blank
+    /// lines, and a leading byte order mark stay where they are. The same key
+    /// twice in one call leaves the last value on one line.
+    ///
+    /// The value becomes a basic string, so `"`, `\`, a newline, a tab, and a
+    /// carriage return are escaped. Any other control character is refused, as
+    /// are an empty or whitespace-only value and a key that is not one of
+    /// `keys`. A file that does not parse is refused with its line, and the
+    /// user fixes it by hand. No message holds a value.
+    public static func setting(
+        _ pairs: [(key: String, value: String)],
+        in text: String,
+        path: String
+    ) throws(ConfigError) -> String {
+        var lineOf: [String: Int] = [:]
+        for entry in try parse(text, path: path) { lineOf[entry.key] = entry.line - 1 }
+        var lines = splitLines(of: text)
+        // An appended line takes the text's last ending, or "\n" when it has
+        // none, so a file of CRLF lines stays a file of CRLF lines.
+        let ending = lines.last(where: { !$0.ending.isEmpty })?.ending ?? "\n"
+        for pair in pairs {
+            try check(key: pair.key, path: path)
+            try check(value: pair.value, of: pair.key, path: path)
+            let encoded = basicString(encoding: pair.value)
+            if let index = lineOf[pair.key] {
+                try replace(encoded, on: &lines[index].body, number: index + 1, path: path)
+            } else {
+                lineOf[pair.key] = append("\(pair.key) = \(encoded)", to: &lines, ending: ending)
+            }
+        }
+        let result = lines.map { String(String.UnicodeScalarView($0.body)) + $0.ending }.joined()
+        _ = try parse(result, path: path)
+        return result
+    }
+
     /// What an unknown key reports. The writer uses the same wording.
     static func unknownKeyProblem(_ key: String) -> String {
         "unknown key \"\(key)\"; the keys are \(keys.joined(separator: " and "))"
@@ -63,28 +104,42 @@ public enum ConfigFile {
         \(ModelConfiguration.modelVariable) = "typesafe:jev-latest"
         """
 
-    /// Splits the text into lines and drops what belongs to no line: the line
-    /// break itself, the carriage return before a line feed, and a BOM at the
-    /// start of the file. A carriage return with no line feed after it stays,
-    /// as TOML says, and the line it is on fails. Scalars, not characters,
-    /// because a CRLF is one character and a combining mark joins the one
-    /// before it.
-    private static func lines(of text: String) -> [[Unicode.Scalar]] {
-        var rest = Substring(text).unicodeScalars
-        if rest.first == "\u{FEFF}" { rest.removeFirst() }
-        var lines: [[Unicode.Scalar]] = []
+    /// Splits the text into lines that keep their own ending: "\r\n", "\n", or
+    /// "" for a last line with no break. Joining every body to its ending
+    /// gives the text back, byte for byte, which is how an edit leaves the
+    /// lines it does not touch. A carriage return with no line feed after it
+    /// stays in the body, as TOML says, and the line it is on fails. Scalars,
+    /// not characters, because a CRLF is one character and a combining mark
+    /// joins the one before it. There is always at least one line.
+    private static func splitLines(
+        of text: String
+    ) -> [(body: [Unicode.Scalar], ending: String)] {
+        var lines: [(body: [Unicode.Scalar], ending: String)] = []
         var current: [Unicode.Scalar] = []
-        for scalar in rest {
-            if scalar == "\n" {
-                if current.last == "\r" { current.removeLast() }
-                lines.append(current)
-                current = []
-            } else {
+        for scalar in text.unicodeScalars {
+            guard scalar == "\n" else {
                 current.append(scalar)
+                continue
             }
+            var ending = "\n"
+            if current.last == "\r" {
+                current.removeLast()
+                ending = "\r\n"
+            }
+            lines.append((current, ending))
+            current = []
         }
-        lines.append(current)
+        lines.append((current, ""))
         return lines
+    }
+
+    /// The lines without what belongs to no line: the line break itself, the
+    /// carriage return before a line feed, and a BOM at the start of the file.
+    /// The editor works on `splitLines`, so a BOM survives an edit.
+    private static func lines(of text: String) -> [[Unicode.Scalar]] {
+        var bodies = splitLines(of: text).map(\.body)
+        if bodies[0].first == "\u{FEFF}" { bodies[0].removeFirst() }
+        return bodies
     }
 
     /// Reads one line. Gives the entry it sets, or nil when the line is blank
@@ -117,19 +172,21 @@ public enum ConfigFile {
         let name = String(String.UnicodeScalarView(key))
         guard keys.contains(name) else { throw fail(unknownKeyProblem(name)) }
 
-        let value = try parseValue(line, from: equals + 1, number: number, path: path)
-        return Entry(key: name, value: value, line: number)
+        let read = try parseValue(line, from: equals + 1, number: number, path: path)
+        return Entry(key: name, value: read.value, line: number)
     }
 
     /// Reads the value after the `=`, then what may follow it: blanks, and
     /// either the end of the line or a comment. A comment needs no space
-    /// before its `#`, as in TOML.
+    /// before its `#`, as in TOML. Gives the value's span as well, `start` on
+    /// the opening quote and `end` after the closing one, which the editor
+    /// replaces and `parseLine` ignores.
     private static func parseValue(
         _ line: [Unicode.Scalar],
         from position: Int,
         number: Int,
         path: String
-    ) throws(ConfigError) -> String {
+    ) throws(ConfigError) -> (value: String, start: Int, end: Int) {
         func fail(_ problem: String) -> ConfigError {
             ConfigError(path: path, line: number, problem: problem)
         }
@@ -155,7 +212,7 @@ public enum ConfigFile {
         let rest = skippingBlanks(line, from: read.next)
         guard rest == line.count || line[rest] == "#" else { throw fail("text after the value") }
         if rest < line.count { try comment(line, from: rest, number: number, path: path) }
-        return read.value
+        return (read.value, start, read.next)
     }
 
     /// Checks a comment, which starts at `position` with its `#`. TOML
@@ -232,6 +289,81 @@ public enum ConfigFile {
             index += 1
         }
         throw fail("unterminated string")
+    }
+
+    /// Refuses a key no file may hold. A key that could be bare is named, as
+    /// the parser names it; any other key is not, so no message can carry
+    /// arbitrary text from a caller.
+    private static func check(key: String, path: String) throws(ConfigError) {
+        guard !keys.contains(key) else { return }
+        let scalars = key.unicodeScalars
+        guard !scalars.isEmpty, scalars.allSatisfy(isKeyScalar) else {
+            throw ConfigError(path: path, line: 0, problem: "the key is not a bare key")
+        }
+        throw ConfigError(path: path, line: 0, problem: unknownKeyProblem(key))
+    }
+
+    /// Refuses a value no file may hold: one the parser would call empty, and
+    /// one holding a control character the escapes do not cover. Line 0,
+    /// because the value comes from the caller and not from a line.
+    private static func check(value: String, of key: String, path: String) throws(ConfigError) {
+        guard !value.allSatisfy(\.isWhitespace) else {
+            throw ConfigError(path: path, line: 0, problem: "\(key) is empty")
+        }
+        let escaped: Set<Unicode.Scalar> = ["\n", "\r"]
+        let raw = value.unicodeScalars.contains { isControl($0) && !escaped.contains($0) }
+        guard !raw else {
+            throw ConfigError(path: path, line: 0, problem: "value has a control character")
+        }
+    }
+
+    /// The value as a basic string, quoted, with the five escapes of the
+    /// subset. The caller refuses any other control character first.
+    private static func basicString(encoding value: String) -> String {
+        var result = "\""
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case "\"": result += "\\\""
+            case "\\": result += "\\\\"
+            case "\n": result += "\\n"
+            case "\t": result += "\\t"
+            case "\r": result += "\\r"
+            default: result.unicodeScalars.append(scalar)
+            }
+        }
+        return result + "\""
+    }
+
+    /// Puts the encoded value on a line that already parsed, in place of the
+    /// value there. Everything else on the line stays: the key, the spacing
+    /// around the `=`, a BOM before the key, and a trailing comment.
+    private static func replace(
+        _ encoded: String,
+        on line: inout [Unicode.Scalar],
+        number: Int,
+        path: String
+    ) throws(ConfigError) {
+        let start = skippingBlanks(line, from: 0)
+        guard let equals = line[start...].firstIndex(of: "=") else {
+            throw ConfigError(path: path, line: number, problem: shapeProblem)
+        }
+        let read = try parseValue(line, from: equals + 1, number: number, path: path)
+        line.replaceSubrange(read.start..<read.end, with: encoded.unicodeScalars)
+    }
+
+    /// Adds a line at the end and gives its index. Ends the line before it
+    /// first when that line has no ending of its own, so a text with no final
+    /// break gets one; an empty text has an empty last line and takes no
+    /// blank line.
+    private static func append(
+        _ line: String,
+        to lines: inout [(body: [Unicode.Scalar], ending: String)],
+        ending: String
+    ) -> Int {
+        let last = lines.count - 1
+        if !lines[last].body.isEmpty, lines[last].ending.isEmpty { lines[last].ending = ending }
+        lines.append((Array(line.unicodeScalars), ending))
+        return lines.count - 1
     }
 
     /// The first position from `position` that holds neither a space nor a
