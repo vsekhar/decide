@@ -28,11 +28,28 @@ public enum ConfigFiles {
         var project: [String] = []
         var directory = normalized(currentDirectory)
         while directory != home {
-            project.append(joined(directory, ".decide/config"))
+            project.append(projectFile(in: directory))
             if directory == "/" { break }
             directory = normalized(directory + "/..")
         }
-        return ConfigPaths(project: project, home: homePaths(home: home, environment: environment))
+        return ConfigPaths(project: project, home: homePaths(environment: environment))
+    }
+
+    /// The home file a write goes to: `<xdg>/decide/config`, the first of
+    /// the two the run reads. Nil when `HOME` is unset or blank.
+    public static func homeFile(environment: [String: String]) -> String? {
+        homePaths(environment: environment).first
+    }
+
+    /// The project file a write goes to: `<currentDirectory>/.decide/config`.
+    public static func projectFile(in currentDirectory: String) -> String {
+        joined(normalized(currentDirectory), ".decide/config")
+    }
+
+    /// The error a file the reader refused becomes. The line is 0, so the
+    /// message names the file alone.
+    public static func error(_ reason: ConfigReadError, at path: String) -> ConfigError {
+        ConfigError(path: path, line: 0, problem: problem(for: reason))
     }
 
     /// Reads and merges the files, project first, and gives the pairs they
@@ -76,8 +93,8 @@ public enum ConfigFiles {
     /// The two home files, in order. None when `HOME` is unset or blank.
     /// `XDG_CONFIG_HOME` counts only when it is set, non-blank, and
     /// absolute, as the XDG spec says.
-    private static func homePaths(home: String?, environment: [String: String]) -> [String] {
-        guard let home else { return [] }
+    private static func homePaths(environment: [String: String]) -> [String] {
+        guard let home = nonBlank(environment["HOME"]).map(normalized) else { return [] }
         let xdg = nonBlank(environment["XDG_CONFIG_HOME"])
             .flatMap { $0.hasPrefix("/") ? normalized($0) : nil }
         return [
@@ -98,7 +115,7 @@ public enum ConfigFiles {
         do {
             text = try read(path)
         } catch {
-            throw ConfigError(path: path, line: 0, problem: problem(for: error))
+            throw Self.error(error, at: path)
         }
         guard let text else { return }
         for entry in try ConfigFile.parse(text, path: path) {

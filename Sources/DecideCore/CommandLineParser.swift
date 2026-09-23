@@ -1,10 +1,36 @@
-/// What the command line asks for: help, the version, or one run.
+/// What the command line asks for: help, the version, a config write, or
+/// one run.
 public enum ParseResult: Equatable, Sendable {
     case help
     /// `--version`. `alone` is false when any other argument came with it,
     /// which is a usage error that `Decide.run` reports after the version.
     case version(alone: Bool)
+    /// `--set-config`, and the settings it writes.
+    case setConfig(SetConfig)
     case run(Invocation)
+}
+
+/// What `--set-config` writes, and where.
+///
+/// At least one of `model` and `apiKey` is set. The values are as the user
+/// typed them: the model is trimmed when it is read back, and the key is
+/// written as given.
+public struct SetConfig: Equatable, Sendable {
+    /// The value for DECIDE_MODEL, or nil without `--model`.
+    public var model: String?
+    /// The value for DECIDE_MODEL_API_KEY, or nil without `--api-key`.
+    /// Never set with `project`: the trust rule keeps a key out of a
+    /// project file.
+    public var apiKey: String?
+    /// Write `./.decide/config` instead of the home config, from
+    /// `--project`.
+    public var project: Bool
+
+    public init(model: String?, apiKey: String?, project: Bool = false) {
+        self.model = model
+        self.apiKey = apiKey
+        self.project = project
+    }
 }
 
 /// Turns the argument list (after the program name) into an `Invocation`.
@@ -19,12 +45,15 @@ public enum CommandLineParser {
     /// needs. `--quiet` or `-q` keeps the one yes/no question's answer off
     /// stdout. `--context` is optional; without it the questions run with no
     /// state. `--version` anywhere returns `.version(alone:)`, alone or not.
-    /// Without it, `--help` or `-h` anywhere returns `.help`. Anything the
+    /// Without it, `--help` or `-h` anywhere returns `.help`. `--set-config`
+    /// after those two takes the line for itself: `--model`, `--api-key`, and
+    /// `--project` join it, and any other token is an error. Anything the
     /// tool cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         if arguments.contains("--version") { return .version(alone: arguments.count == 1) }
         if arguments.contains(where: { $0 == "--help" || $0 == "-h" }) { return .help }
+        if arguments.contains("--set-config") { return .setConfig(try parseSetConfig(arguments)) }
 
         var context: ContextSource?
         var questions: [QuestionBuilder] = []
@@ -74,6 +103,10 @@ public enum CommandLineParser {
                 continue
             }
 
+            if let flag = setConfigFlag(token) {
+                throw UsageError("\(flag) needs --set-config")
+            }
+
             if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
 
             guard !token.isEmpty else { throw UsageError("question \(questions.count + 1) is empty") }
@@ -95,6 +128,78 @@ public enum CommandLineParser {
         }
 
         return .run(Invocation(context: context, questions: finished, quiet: quiet))
+    }
+
+    /// Parses a line that holds `--set-config`.
+    ///
+    /// The flag takes `--model`, `--api-key`, and `--project`, each once,
+    /// and nothing else. `--model` and `--api-key` take `--flag value` or
+    /// `--flag=value`. The line must set at least one of the two, and a key
+    /// may not go to a project file.
+    private static func parseSetConfig(_ arguments: [String]) throws(UsageError) -> SetConfig {
+        var model: String?
+        var apiKey: String?
+        var project = false
+        var seen = false
+        var index = 0
+
+        while index < arguments.count {
+            let token = arguments[index]
+            index += 1
+
+            if token == "--set-config" {
+                guard !seen else { throw UsageError("--set-config was given twice") }
+                seen = true
+                continue
+            }
+
+            if token == "--project" {
+                guard !project else { throw UsageError("--project was given twice") }
+                project = true
+                continue
+            }
+
+            if let value = try flagValue(of: "--model", token: token, arguments: arguments, index: &index) {
+                guard model == nil else { throw UsageError("--model was given twice") }
+                model = try setting(value, of: "--model")
+                continue
+            }
+
+            if let value = try flagValue(of: "--api-key", token: token, arguments: arguments, index: &index) {
+                guard apiKey == nil else { throw UsageError("--api-key was given twice") }
+                apiKey = try setting(value, of: "--api-key")
+                continue
+            }
+
+            throw UsageError("--set-config runs alone")
+        }
+
+        guard model != nil || apiKey != nil else {
+            throw UsageError("--set-config needs --model or --api-key")
+        }
+        guard apiKey == nil || !project else {
+            throw UsageError("--api-key is allowed only in the home config, not in a project's")
+        }
+        return SetConfig(model: model, apiKey: apiKey, project: project)
+    }
+
+    /// The value of a `--set-config` flag. A value that is empty or only
+    /// whitespace sets nothing, so it is an error. Anything else goes on as
+    /// the user typed it.
+    private static func setting(_ value: String, of flag: String) throws(UsageError) -> String {
+        guard !value.allSatisfy(\.isWhitespace) else { throw UsageError("\(flag) is empty") }
+        return value
+    }
+
+    /// The `--set-config` flag a token names, or nil for any other token.
+    /// `--model=x` and `--api-key=x` match too, so both forms of a value
+    /// report the same problem.
+    private static func setConfigFlag(_ token: String) -> String? {
+        if token == "--project" { return "--project" }
+        for flag in ["--model", "--api-key"] where token == flag || token.hasPrefix(flag + "=") {
+            return flag
+        }
+        return nil
     }
 
     /// One question as the parser builds it. `flag` is the first kind flag

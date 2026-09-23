@@ -755,6 +755,128 @@ struct CommandLineParserTests {
         #expect(result == .run(invocation(Option(id: "-q"))))
     }
 
+    @Test("--set-config takes --model and --api-key in either value form")
+    func setConfigValueForms() throws {
+        let expected = ParseResult.setConfig(SetConfig(model: "typesafe:jev-latest", apiKey: "k"))
+        #expect(
+            try CommandLineParser.parse([
+                "--set-config", "--model", "typesafe:jev-latest", "--api-key", "k",
+            ]) == expected
+        )
+        #expect(
+            try CommandLineParser.parse([
+                "--set-config", "--model=typesafe:jev-latest", "--api-key=k",
+            ]) == expected
+        )
+    }
+
+    @Test("--set-config takes either flag on its own, and --project with it")
+    func setConfigOneFlag() throws {
+        #expect(
+            try CommandLineParser.parse(["--set-config", "--api-key", "k"])
+                == .setConfig(SetConfig(model: nil, apiKey: "k"))
+        )
+        #expect(
+            try CommandLineParser.parse([
+                "--set-config", "--model", "typesafe:jev-latest", "--project",
+            ]) == .setConfig(SetConfig(model: "typesafe:jev-latest", apiKey: nil, project: true))
+        )
+    }
+
+    @Test("A --set-config value keeps everything after the first =")
+    func setConfigValueWithEquals() throws {
+        #expect(
+            try CommandLineParser.parse(["--set-config", "--api-key=a=b=c"])
+                == .setConfig(SetConfig(model: nil, apiKey: "a=b=c"))
+        )
+    }
+
+    @Test("Any other token with --set-config is an error")
+    func setConfigRunsAlone() {
+        let lines = [
+            ["--set-config", "--model", "typesafe:jev-latest", "Q"],
+            ["--set-config", "--context", "c", "--model", "typesafe:jev-latest"],
+            ["--set-config", "--model", "typesafe:jev-latest", "-q"],
+            ["--set-config", "--model", "typesafe:jev-latest", "--option", "a"],
+        ]
+        for line in lines {
+            #expect(throws: UsageError("--set-config runs alone"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("--model, --api-key, and --project without --set-config name it")
+    func setConfigFlagsNeedTheFlag() {
+        let lines: [(String, [String])] = [
+            ("--model", ["Q", "--model", "typesafe:jev-latest"]),
+            ("--model", ["Q", "--model=typesafe:jev-latest"]),
+            ("--api-key", ["Q", "--api-key", "k"]),
+            ("--api-key", ["Q", "--api-key=k"]),
+            ("--project", ["Q", "--project"]),
+        ]
+        for (flag, line) in lines {
+            #expect(throws: UsageError("\(flag) needs --set-config"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("--set-config with nothing to write is an error")
+    func setConfigNeedsASetting() {
+        let lines = [["--set-config"], ["--set-config", "--project"]]
+        for line in lines {
+            #expect(throws: UsageError("--set-config needs --model or --api-key"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("Each --set-config flag comes once")
+    func setConfigRepeatedFlags() {
+        let lines: [(String, [String])] = [
+            ("--set-config", ["--set-config", "--set-config", "--model", "typesafe:jev-latest"]),
+            ("--model", ["--set-config", "--model", "typesafe:jev-latest", "--model=x:y"]),
+            ("--api-key", ["--set-config", "--api-key", "k", "--api-key=k2"]),
+            ("--project", ["--set-config", "--api-key", "k", "--project", "--project"]),
+        ]
+        for (flag, line) in lines {
+            #expect(throws: UsageError("\(flag) was given twice"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("A --set-config value that is empty or blank is an error")
+    func setConfigEmptyValue() {
+        #expect(throws: UsageError("--model is empty")) {
+            try CommandLineParser.parse(["--set-config", "--model="])
+        }
+        #expect(throws: UsageError("--model is empty")) {
+            try CommandLineParser.parse(["--set-config", "--model", " "])
+        }
+        #expect(throws: UsageError("--api-key is empty")) {
+            try CommandLineParser.parse(["--set-config", "--api-key", ""])
+        }
+    }
+
+    @Test("--api-key with --project is refused")
+    func setConfigKeyNeedsTheHomeConfig() {
+        #expect(
+            throws: UsageError("--api-key is allowed only in the home config, not in a project's")
+        ) {
+            try CommandLineParser.parse(["--set-config", "--api-key", "k", "--project"])
+        }
+    }
+
+    @Test("--help and --version win over --set-config")
+    func setConfigYieldsToHelpAndVersion() throws {
+        #expect(try CommandLineParser.parse(["--set-config", "--help"]) == .help)
+        #expect(
+            try CommandLineParser.parse(["--set-config", "--version"]) == .version(alone: false)
+        )
+    }
+
     /// The bar on every question a parse produced, in question order.
     private func bars(_ result: ParseResult) -> [Double?] {
         guard case .run(let invocation) = result else {

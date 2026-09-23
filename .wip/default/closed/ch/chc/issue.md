@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-21T20:15:50-04:00
-updated: 2026-09-22T23:11:59-04:00
+updated: 2026-09-23T00:10:16-04:00
 ---
 
 # On-disk configuration: .decide/config files, a TOML subset, lookup from the working directory to the home, environment over files
@@ -55,3 +55,9 @@ Start with mia. rvj is the feature; jq1 follows.
 _📝 Noted on 2026-09-22 23:11:59-04:00 @ git:6253340+local_
 
 Known limitation 2026-09-22, from rvj's verification: path comparison is lexical by design, so if HOME is a symlink path while the working directory is physical (or the reverse), the walk never meets HOME, climbs to the root, and reads the real home's .decide/config as a project file, where a key line is then refused. No claim is made for symlinked homes; a later issue could resolve both paths with the filesystem before comparing.
+
+---
+
+_📝 Noted on 2026-09-23 00:10:16-04:00 @ git:8c0b89e+local_
+
+Known limitation 2026-09-23, from jq1's verification: `--set-config` writes through a temp file and rename, so a config file that is a symlink (into a dotfiles directory, say) is replaced by a regular file and the link target keeps its old text. git config resolves the link first. No claim is made for symlinked config files; a later issue could resolve the target's real path before writing.

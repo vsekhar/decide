@@ -30,6 +30,10 @@ public enum Decide {
                                  the run is unsure and exits 2. On a yes/no question, n
                                  means P(yes) at least (1 + n) / 2 for yes.
           --quiet, -q            Print no answer. Only with one yes/no question.
+          --set-config           Write settings to the home config and exit.
+          --model <model>        With --set-config, the model to write, provider:model.
+          --api-key <key>        With --set-config, the key to write. Home config only.
+          --project              With --set-config, write ./.decide/config instead.
           --help, -h             Print this text.
           --version              Print the version and exit. Takes no other arguments.
 
@@ -42,7 +46,8 @@ public enum Decide {
           Config files: .decide/config in the working directory and its parents,
           then ~/.config/decide/config and ~/.decide/config. Lines of
           KEY = "value" with the same two keys. The nearest file wins, and the
-          environment wins over every file.
+          environment wins over every file. --set-config edits one line and
+          keeps the rest.
 
         Exit codes: 0 decided, 2 unsure, 10 setup or input error, 11 remote error.
         One yes/no question answers with its exit code too: 0 yes, 1 no, like grep.
@@ -57,7 +62,8 @@ public enum Decide {
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
-    /// Without one, no file is read.
+    /// Without one, no file is read. A `--set-config` run writes one config
+    /// file and reads none.
     public static func run(
         arguments: [String],
         environment: [String: String],
@@ -86,6 +92,13 @@ public enum Decide {
             }
             print(version, to: &stdout)
             return ExitCode.decided
+        case .setConfig(let request):
+            return setConfig(
+                request,
+                environment: environment,
+                currentDirectory: currentDirectory,
+                stderr: &stderr
+            )
         case .run(let parsedInvocation):
             invocation = parsedInvocation
         }
@@ -156,6 +169,119 @@ public enum Decide {
         print(ExitCode.message(for: error), to: &stderr)
         print("", to: &stderr)
         print(usage, to: &stderr)
+    }
+
+    /// Writes what `--set-config` names into a config file and gives the
+    /// exit code. Success prints nothing. Every failure prints one line to
+    /// `stderr` and leaves the file as it was.
+    private static func setConfig(
+        _ request: SetConfig,
+        environment: [String: String],
+        currentDirectory: String?,
+        stderr: inout some TextOutputStream
+    ) -> Int32 {
+        let pairs: [(key: String, value: String)]
+        let path: String
+        do {
+            pairs = try settings(of: request)
+            path = try target(
+                of: request, environment: environment, currentDirectory: currentDirectory
+            )
+        } catch {
+            print(ExitCode.message(for: error), to: &stderr)
+            return ExitCode.setup
+        }
+        do {
+            let text = try readConfigFile(path) ?? ""
+            let edited = try ConfigFile.setting(pairs, in: text, path: path)
+            try writeConfigFile(edited, to: path, isHome: !request.project)
+        } catch let error as ConfigReadError {
+            print(ExitCode.message(for: ConfigFiles.error(error, at: path)), to: &stderr)
+            return ExitCode.setup
+        } catch let error as ConfigError {
+            print(ExitCode.message(for: error), to: &stderr)
+            return ExitCode.setup
+        } catch {
+            let failure = ConfigError(path: path, line: 0, problem: error.localizedDescription)
+            print(ExitCode.message(for: failure), to: &stderr)
+            return ExitCode.setup
+        }
+        return ExitCode.decided
+    }
+
+    /// The keys and values a `--set-config` run writes, in order. The model
+    /// goes through `ModelConfiguration` first, so a malformed one or an
+    /// unknown provider never reaches a file.
+    private static func settings(
+        of request: SetConfig
+    ) throws(ConfigurationError) -> [(key: String, value: String)] {
+        var pairs: [(key: String, value: String)] = []
+        if let model = request.model {
+            _ = try ModelConfiguration(environment: [ModelConfiguration.modelVariable: model])
+            pairs.append((ModelConfiguration.modelVariable, model))
+        }
+        if let apiKey = request.apiKey {
+            pairs.append((ModelConfiguration.apiKeyVariable, apiKey))
+        }
+        return pairs
+    }
+
+    /// The file a `--set-config` run writes: the home config, or the
+    /// working directory's `.decide/config` with `--project`.
+    private static func target(
+        of request: SetConfig,
+        environment: [String: String],
+        currentDirectory: String?
+    ) throws(UsageError) -> String {
+        if request.project {
+            guard let currentDirectory else {
+                throw UsageError("--project has no working directory")
+            }
+            return ConfigFiles.projectFile(in: currentDirectory)
+        }
+        guard let path = ConfigFiles.homeFile(environment: environment) else {
+            throw UsageError("HOME is not set, so there is no home config")
+        }
+        return path
+    }
+
+    /// Writes the text to `path` through a temporary file in the same
+    /// directory, which it renames over the target, so a failure leaves the
+    /// old file as it was. The home config is the owner's alone: mode 0700
+    /// on the directories it makes, and the file is created at 0600, so no
+    /// one else can read a key even for an instant.
+    private static func writeConfigFile(_ text: String, to path: String, isHome: Bool) throws {
+        let url = URL(fileURLWithPath: path)
+        let directory = url.deletingLastPathComponent()
+        let attributes: [FileAttributeKey: Any]? = isHome ? [.posixPermissions: 0o700] : nil
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true, attributes: attributes
+        )
+        let temporary = directory.appendingPathComponent(".config.\(UUID().uuidString).tmp")
+        do {
+            let descriptor = open(
+                temporary.path, O_WRONLY | O_CREAT | O_EXCL, isHome ? 0o600 : 0o644
+            )
+            guard descriptor >= 0 else { throw posixError() }
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            try handle.write(contentsOf: Data(text.utf8))
+            try handle.close()
+            guard rename(temporary.path, path) == 0 else { throw posixError() }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
+    /// The last POSIX call's failure, with the system's own reason as its
+    /// message.
+    private static func posixError() -> NSError {
+        let code = errno
+        return NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(code))]
+        )
     }
 
     /// Reads a config file. Gives nil when there is no file at `path`. A

@@ -685,6 +685,259 @@ struct DecideRunTests {
         #expect(!err.contains("nohome"))
         #expect(out.isEmpty)
     }
+
+    @Test("--set-config writes the home config, prints nothing, and exits 0")
+    func setConfigWritesTheHomeFile() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out.isEmpty)
+        #expect(err.isEmpty)
+        let text = try String(contentsOfFile: tree.homeFile, encoding: .utf8)
+        #expect(text == "DECIDE_MODEL = \"typesafe:jev-latest\"\n")
+        #expect(tree.mode(tree.homeFile) == 0o600)
+        #expect(tree.mode(tree.homeDirectory) == 0o700)
+    }
+
+    @Test("A set-config run reads no config chain")
+    func setConfigReadsNoChain() async throws {
+        // A broken project file up the tree stops a normal run; it must not
+        // stop the write that would fix the home config.
+        let tree = try ConfigTree(project: "DECIDE_MODEL = broken\n")
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(err.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: tree.homeFile))
+    }
+
+    @Test("A write makes a permissive home config the owner's alone")
+    func setConfigTightensTheMode() async throws {
+        // The new file replaces the old one, so its mode is 0600 whatever
+        // the old file's was.
+        let tree = try ConfigTree(home: "# old\n")
+        defer { tree.remove() }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644], ofItemAtPath: tree.homeFile
+        )
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        let text = try String(contentsOfFile: tree.homeFile, encoding: .utf8)
+        #expect(text == "# old\nDECIDE_MODEL = \"typesafe:jev-latest\"\n")
+        #expect(tree.mode(tree.homeFile) == 0o600)
+    }
+
+    @Test("A second --set-config changes only the model's line")
+    func setConfigKeepsTheRestOfTheFile() async throws {
+        let before = """
+            # my settings
+            DECIDE_MODEL = "typesafe:jev-latest"  # the one I use
+            DECIDE_MODEL_API_KEY = "k"
+
+            """
+        let tree = try ConfigTree(home: before)
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "openrouter:typesafe/jev-1.13"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        let text = try String(contentsOfFile: tree.homeFile, encoding: .utf8)
+        #expect(
+            text == """
+                # my settings
+                DECIDE_MODEL = "openrouter:typesafe/jev-1.13"  # the one I use
+                DECIDE_MODEL_API_KEY = "k"
+
+                """
+        )
+    }
+
+    @Test("--project writes the working directory's config")
+    func setConfigWritesTheProjectFile() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest", "--project"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(err.isEmpty)
+        let text = try String(contentsOfFile: tree.sub + "/.decide/config", encoding: .utf8)
+        #expect(text == "DECIDE_MODEL = \"typesafe:jev-latest\"\n")
+        #expect(!FileManager.default.fileExists(atPath: tree.homeFile))
+    }
+
+    @Test("A key with a quote and a backslash reads back unchanged")
+    func setConfigKeyReadsBack() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        let key = #"a"b\c"#
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--api-key", key],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        let config = try ConfigFiles.load(paths: ConfigPaths(project: [], home: [tree.homeFile])) {
+            path in try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        #expect(config[ModelConfiguration.apiKeyVariable] == key)
+    }
+
+    @Test("--api-key with --project exits 10 and writes nothing")
+    func setConfigKeyToAProjectIsRefused() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--api-key", "k", "--project"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("--api-key is allowed only in the home config"))
+        #expect(out.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: tree.sub + "/.decide/config"))
+        #expect(!FileManager.default.fileExists(atPath: tree.homeFile))
+    }
+
+    @Test("A malformed home config exits 10, names its line, and stays as it was")
+    func setConfigOnAMalformedFile() async throws {
+        let before = "DECIDE_MODEL = typesafe:jev-latest\n"
+        let tree = try ConfigTree(home: before)
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("\(tree.homeFile):1:"))
+        #expect(out.isEmpty)
+        #expect(try String(contentsOfFile: tree.homeFile, encoding: .utf8) == before)
+    }
+
+    @Test("A model that is not provider:model exits 10 and writes nothing")
+    func setConfigRefusesABadModel() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "jev-latest"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("DECIDE_MODEL \"jev-latest\" is not provider:model"))
+        #expect(out.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: tree.homeFile))
+    }
+
+    @Test("--set-config with no HOME exits 10")
+    func setConfigWithoutHome() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest"],
+            environment: [:],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("HOME is not set, so there is no home config"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("--project without a working directory exits 10")
+    func setConfigProjectWithoutAWorkingDirectory() async throws {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest", "--project"],
+            environment: [:],
+            currentDirectory: nil,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("--project has no working directory"))
+        #expect(out.isEmpty)
+    }
 }
 
 /// A temp tree for the config tests, so the lookup never leaves it.
@@ -717,8 +970,19 @@ private struct ConfigTree {
         try write(homeText, to: homeFile)
     }
 
+    /// The directory `homeFile` is in, `<tmp>/home/.config/decide`.
+    var homeDirectory: String {
+        URL(fileURLWithPath: homeFile).deletingLastPathComponent().path
+    }
+
     func remove() {
         try? FileManager.default.removeItem(at: root)
+    }
+
+    /// The permission bits of the file or directory at `path`, or nil when
+    /// there is none.
+    func mode(_ path: String) -> Int? {
+        try? FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int
     }
 
     private func write(_ text: String?, to path: String) throws {

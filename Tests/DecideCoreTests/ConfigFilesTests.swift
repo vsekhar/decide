@@ -110,6 +110,36 @@ struct ConfigFilesTests {
         )
     }
 
+    @Test("The home file a write goes to is the first home path")
+    func homeFileToWrite() {
+        #expect(ConfigFiles.homeFile(environment: ["HOME": "/home/u"]) == xdg)
+        #expect(
+            ConfigFiles.homeFile(environment: ["HOME": "/home/u", "XDG_CONFIG_HOME": "/x"])
+                == "/x/decide/config"
+        )
+        #expect(ConfigFiles.homeFile(environment: [:]) == nil)
+        #expect(ConfigFiles.homeFile(environment: ["HOME": " "]) == nil)
+    }
+
+    @Test("The project file a write goes to is under the working directory")
+    func projectFileToWrite() {
+        #expect(ConfigFiles.projectFile(in: "/home/u/proj/sub") == near)
+        #expect(ConfigFiles.projectFile(in: "/home/u/proj/sub/") == near)
+        #expect(ConfigFiles.projectFile(in: "/") == "/.decide/config")
+    }
+
+    @Test("A file the reader refused names itself and no line")
+    func readErrorNamesTheFile() {
+        #expect(
+            ConfigFiles.error(.unreadable, at: near)
+                == ConfigError(path: near, line: 0, problem: "cannot read the file")
+        )
+        #expect(
+            ConfigFiles.error(.notUTF8, at: near)
+                == ConfigError(path: near, line: 0, problem: "is not valid UTF-8")
+        )
+    }
+
     @Test("The nearest file wins per key")
     func nearestWins() throws {
         let config = try ConfigFiles.load(
