@@ -104,6 +104,14 @@ binary, for each bump. Tags are bare versions, like the library's.
    to `git@github.com:vsekhar/homebrew-tap.git` once with `git remote
    set-url` in `$(brew --repository vsekhar/tap)`.
 
+   The command leaves that clone on its bump branch, so `brew upgrade`
+   sees the old formula until the clone is back on main. After step 5:
+
+   ```sh
+   git -C "$(brew --repository vsekhar/tap)" checkout main
+   git -C "$(brew --repository vsekhar/tap)" pull --ff-only
+   ```
+
 4. Wait for the pull request's `brew test-bot` run. It builds the formula
    from source on macOS 26, runs `brew test`, and keeps the bottle as an
    artifact. A red run means the bump is wrong. Fix it on the branch. The
