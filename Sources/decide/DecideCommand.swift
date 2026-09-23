@@ -11,6 +11,7 @@ struct DecideCommand {
         let code = await Decide.run(
             arguments: Array(CommandLine.arguments.dropFirst()),
             environment: ProcessInfo.processInfo.environment,
+            currentDirectory: FileManager.default.currentDirectoryPath,
             stdout: &stdout,
             stderr: &stderr
         )

@@ -32,6 +32,8 @@ targets are awkward.
   `DECIDE_MODEL_API_KEY` to a provider model.
 - `Sources/DecideCore/ConfigFile.swift`: the `.decide/config` format, a
   TOML subset of `KEY = "value"` lines, parsed by hand.
+- `Sources/DecideCore/ConfigFiles.swift`: where the config files are, how
+  they merge, and how the result lays under the environment.
 - `Sources/DecideCore/ExitCode.swift`: every error to an exit code and a
   one-line message.
 - `Sources/DecideCore/StandardStreams.swift`: stdout and stderr as

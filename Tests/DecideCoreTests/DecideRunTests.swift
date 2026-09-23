@@ -542,6 +542,193 @@ struct DecideRunTests {
         #expect(err == "Error: the request timed out.\n")
         #expect(out.isEmpty)
     }
+
+    @Test("A project config supplies the model")
+    func modelFromProjectConfig() async throws {
+        let tree = try ConfigTree(project: #"DECIDE_MODEL = "nosuch:model""#)
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        // The unknown provider proves the value came from the file, and that
+        // no model was built and no request went out.
+        #expect(code == 10)
+        #expect(err.contains("nosuch"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("A malformed config exits 10 and names the file and line")
+    func malformedProjectConfig() async throws {
+        let tree = try ConfigTree(project: "DECIDE_MODEL = typesafe:jev-latest\n")
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("\(tree.projectFile):1:"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("The key in a project config exits 10 and names the file and line")
+    func keyInProjectConfig() async throws {
+        let tree = try ConfigTree(
+            project: """
+                DECIDE_MODEL = "typesafe:jev-latest"
+                DECIDE_MODEL_API_KEY = "k"
+                """
+        )
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("\(tree.projectFile):2:"))
+        #expect(err.contains("DECIDE_MODEL_API_KEY is allowed only in the home config"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("A home config carries the key and the run answers")
+    func keyInHomeConfig() async throws {
+        let tree = try ConfigTree(
+            project: #"DECIDE_MODEL = "typesafe:jev-latest""#,
+            home: #"DECIDE_MODEL_API_KEY = "k""#
+        )
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            model: Self.spamModel(probability: 0.97),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("The environment wins over a project config")
+    func environmentOverProjectConfig() async throws {
+        let tree = try ConfigTree(project: #"DECIDE_MODEL = "nosuch:model""#)
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: ["HOME": tree.home, "DECIDE_MODEL": "other:x"],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("other"))
+        #expect(!err.contains("nosuch"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("Without a working directory no config file is read")
+    func noWorkingDirectoryReadsNothing() async throws {
+        // Both files name a model, so a run that read either would fail on
+        // that provider, not on the unset variable.
+        let tree = try ConfigTree(
+            project: #"DECIDE_MODEL = "nosuch:model""#,
+            home: """
+                DECIDE_MODEL = "nohome:model"
+                DECIDE_MODEL_API_KEY = "k"
+                """
+        )
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: ["HOME": tree.home],
+            currentDirectory: nil,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("DECIDE_MODEL is not set"))
+        #expect(!err.contains("nosuch"))
+        #expect(!err.contains("nohome"))
+        #expect(out.isEmpty)
+    }
+}
+
+/// A temp tree for the config tests, so the lookup never leaves it.
+///
+/// `<tmp>/home` is HOME and `<tmp>/home/proj/sub` is the working directory.
+/// A text becomes the file it belongs to; nil writes no file. `remove()`
+/// takes the whole tree away.
+private struct ConfigTree {
+    /// The fake home directory.
+    let home: String
+    /// The working directory a run is given.
+    let sub: String
+    /// `<tmp>/home/proj/.decide/config`, written or not.
+    let projectFile: String
+    /// `<tmp>/home/.config/decide/config`, written or not.
+    let homeFile: String
+
+    private let root: URL
+
+    init(project: String? = nil, home homeText: String? = nil) throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let directory = root.appendingPathComponent("home")
+        self.home = directory.path
+        sub = directory.appendingPathComponent("proj/sub").path
+        projectFile = directory.appendingPathComponent("proj/.decide/config").path
+        homeFile = directory.appendingPathComponent(".config/decide/config").path
+        try FileManager.default.createDirectory(atPath: sub, withIntermediateDirectories: true)
+        try write(project, to: projectFile)
+        try write(homeText, to: homeFile)
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private func write(_ text: String?, to path: String) throws {
+        guard let text else { return }
+        let url = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
 }
 
 /// Keeps the request the model got, so a test can read it after the call.

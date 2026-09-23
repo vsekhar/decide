@@ -37,7 +37,10 @@ public enum ConfigFile {
                     problem: "\(entry.key) is set twice, first on line \(first)"
                 )
             }
-            guard !entry.value.isEmpty else {
+            // Only whitespace is empty too: every consumer trims, and a blank
+            // value that got through would hide a farther file's real one
+            // with a message that names no file.
+            guard !entry.value.allSatisfy(\.isWhitespace) else {
                 throw ConfigError(path: path, line: number, problem: "\(entry.key) is empty")
             }
             firstLine[entry.key] = number

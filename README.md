@@ -15,6 +15,21 @@ $ export DECIDE_MODEL=typesafe:jev-latest    # or openrouter:typesafe/jev-1.13
 $ export DECIDE_MODEL_API_KEY=abc123...
 ```
 
+```sh
+# Or put the model in the project and the key in your home directory
+$ cat .decide/config
+DECIDE_MODEL = "typesafe:jev-latest"
+$ cat ~/.config/decide/config
+DECIDE_MODEL_API_KEY = "abc123..."
+```
+
+`decide` reads `.decide/config` from the working directory and each parent up
+to your home directory, then `~/.config/decide/config` and `~/.decide/config`.
+The nearest file wins per key, and the environment wins over every file, so a
+`DECIDE_MODEL` exported in a shell profile turns every project file off; put
+durable defaults in the home file. `DECIDE_MODEL_API_KEY` may appear only in
+the home files, so a key never lands in a repository.
+
 ## Usage
 
 ```sh

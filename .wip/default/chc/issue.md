@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-21T20:15:50-04:00
-updated: 2026-09-21T20:15:50-04:00
+updated: 2026-09-22T23:11:59-04:00
 ---
 
 # On-disk configuration: .decide/config files, a TOML subset, lookup from the working directory to the home, environment over files
@@ -49,3 +49,9 @@ The parser is pure and tested on text. The lookup's path computation is pure and
 | jq1 | Add `--set-config KEY=VALUE` with `--project` | mia, rvj |
 
 Start with mia. rvj is the feature; jq1 follows.
+
+---
+
+_📝 Noted on 2026-09-22 23:11:59-04:00 @ git:6253340+local_
+
+Known limitation 2026-09-22, from rvj's verification: path comparison is lexical by design, so if HOME is a symlink path while the working directory is physical (or the reverse), the walk never meets HOME, climbs to the root, and reads the real home's .decide/config as a project file, where a key line is then refused. No claim is made for symlinked homes; a later issue could resolve both paths with the filesystem before comparing.

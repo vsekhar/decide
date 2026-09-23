@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-21T20:15:50-04:00
-updated: 2026-09-22T22:28:02-04:00
+updated: 2026-09-22T23:11:59-04:00
 blocked-on:
   - mia
 may-unblock:
@@ -109,3 +109,21 @@ Design record 2026-09-22, filling what the Design section leaves open (the herme
   `decide` reads `.decide/config` from the working directory and each parent up to your home directory, then `~/.config/decide/config` and `~/.decide/config`. The nearest file wins per key, and the environment wins over every file, so a `DECIDE_MODEL` exported in a shell profile turns every project file off; put durable defaults in the home file. `DECIDE_MODEL_API_KEY` may appear only in the home files, so a key never lands in a repository.
 - TESTING.md, after the paragraph "This needs no key and no network. ...", a new paragraph verbatim: "The config tests read no real file. The loader's tests use an in-memory reader, and the run tests build a temp tree with `HOME` inside it, so the lookup never leaves the temp directory. `Decide.run` reads config only when given a working directory, and the tests that pass none stay as they were."
 - Tests, `Tests/DecideCoreTests/ConfigFilesTests.swift` (`@Suite("ConfigFiles")`): the `paths`, `load`, and `environment` cases from the issue's Tests section, plus `ModelConfiguration(environment: ConfigFiles.environment([:], over: [DECIDE_MODEL: "typesafe:jev-latest", DECIDE_MODEL_API_KEY: "k"]))` having `apiKey == "k"` and `provider == .typesafe`. Run level, in `DecideRunTests.swift`, with a temp tree `<tmp>/home` as HOME and `<tmp>/home/proj/sub` as the working directory, `environment: ["HOME": home]`, cleaned up in a defer: (a) `<tmp>/home/proj/.decide/config` holding `DECIDE_MODEL = "nosuch:model"`, no model injected → exit 10, stderr contains `"nosuch"`, stdout empty; (b) a malformed project file → exit 10, stderr contains `<path>:1:`, stdout empty; (c) `DECIDE_MODEL_API_KEY` in the project file → exit 10, stderr contains the trust message and `<path>:<line>:`; (d) the key in `<home>/.config/decide/config` and the model in the project file, scripted model injected → exit 0 and the answer; (e) `environment: ["HOME": home, "DECIDE_MODEL": "other:x"]` over the `nosuch` project file → stderr contains `"other"` and not `"nosuch"`; (f) `currentDirectory: nil` with the same files on disk → exit 10 with the `DECIDE_MODEL is not set` message, proving nothing was read.
+
+---
+
+_📝 Noted on 2026-09-22 22:50:46-04:00 @ git:6253340+local_
+
+Addendum 2026-09-22 to the design record: DEVELOPMENT.md's Layout list gains a line for ConfigFiles.swift after the ConfigFile.swift line: "`Sources/DecideCore/ConfigFiles.swift`: where the config files are, how they merge, and how the result lays under the environment." The worker also runs the whole suite with .env sourced, as CI does, to prove the run-level config tests stay hermetic with TYPESAFE_API_KEY exported.
+
+---
+
+_📝 Noted on 2026-09-22 22:59:14-04:00 @ git:6253340+local_
+
+Implemented 2026-09-22 by a worker from the Design plus the three notes; diff read in the main context and matches. Worker's choices, accepted: a blank line before the usage paragraph; HOME and XDG_CONFIG_HOME used trimmed; `load` delegates to a private `merge(path:isProject:into:read:)`; a relative XDG_CONFIG_HOME is tested as falling back. Checks: build with warnings as errors clean; offline suite 196/196 in 7 suites (22 new in ConfigFiles, 6 in DecideRun); whole suite with .env sourced 198/198, so the run-level config tests are hermetic with TYPESAFE_API_KEY exported; by hand with one paid request, the binary read the model from a project file and the key from a temp home and answered yes with exit 0, and with the key moved into the project file it exited 10 with the trust message naming the file and line 2 and nothing on stdout. Dead-code check by hand: every added symbol has a caller (`ConfigReadError.notUTF8` is thrown by the real reader and mapped by `load`; `ConfigPaths` is built by `paths` and read by `load`); nothing removed; no unused import or parameter. Sent to the verifier.
+
+---
+
+_📝 Noted on 2026-09-22 23:11:59-04:00 @ git:6253340+local_
+
+Verified 2026-09-22: all six acceptance criteria hold. The verifier proved the end-to-end path with one paid request, ran the walk's edge cases, the reader's three failure modes, and the suite with real config files planted in ~/.decide and the repo (196/196, files removed after). Its should-fix: the "no working directory" test survived a mutant that reads config from the process directory, because the home file held only the key. Fixed in the main context: the home file now also names `nohome:model`, and the test asserts neither provider name appears; shown to fail against the mutant and pass restored. Its note on a whitespace-only value (accepted by the parser, then "DECIDE_MODEL is not set" with no file named, and able to hide a farther file's value) is fixed in the parser: a value that is only whitespace is "<KEY> is empty", with a test shown to fail before the fix. Its note on the `paths` precondition is fixed with one doc sentence. Left on the record, not fixed: a symlinked HOME that differs from the physical working directory defeats the stop rule (logged on chc). Mutants (a) to (d) all die; (e) dies after the fix.

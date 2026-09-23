@@ -39,6 +39,11 @@ public enum Decide {
           DECIDE_MODEL_API_KEY   The API key. When unset, the provider reads its own
                                  variable: TYPESAFE_API_KEY or OPENROUTER_API_KEY.
 
+          Config files: .decide/config in the working directory and its parents,
+          then ~/.config/decide/config and ~/.decide/config. Lines of
+          KEY = "value" with the same two keys. The nearest file wins, and the
+          environment wins over every file.
+
         Exit codes: 0 decided, 2 unsure, 10 setup or input error, 11 remote error.
         One yes/no question answers with its exit code too: 0 yes, 1 no, like grep.
         """
@@ -49,9 +54,14 @@ public enum Decide {
     /// replaces the one the environment names, so tests inject a scripted
     /// one. Answers go to `stdout`, one per line, unless the run is quiet;
     /// everything else goes to `stderr`.
+    ///
+    /// A `currentDirectory` turns on config files: `.decide/config` there
+    /// and in each parent, then the home files, laid under `environment`.
+    /// Without one, no file is read.
     public static func run(
         arguments: [String],
         environment: [String: String],
+        currentDirectory: String? = nil,
         model: (any DecisionModel)? = nil,
         stdout: inout some TextOutputStream,
         stderr: inout some TextOutputStream
@@ -78,6 +88,20 @@ public enum Decide {
             return ExitCode.decided
         case .run(let parsedInvocation):
             invocation = parsedInvocation
+        }
+
+        var environment = environment
+        if let currentDirectory {
+            do {
+                let paths = ConfigFiles.paths(
+                    currentDirectory: currentDirectory, environment: environment
+                )
+                let config = try ConfigFiles.load(paths: paths, read: readConfigFile)
+                environment = ConfigFiles.environment(environment, over: config)
+            } catch {
+                print(ExitCode.message(for: error), to: &stderr)
+                return ExitCode.code(for: error)
+            }
         }
 
         let decisionModel: any DecisionModel
@@ -132,6 +156,22 @@ public enum Decide {
         print(ExitCode.message(for: error), to: &stderr)
         print("", to: &stderr)
         print(usage, to: &stderr)
+    }
+
+    /// Reads a config file. Gives nil when there is no file at `path`. A
+    /// directory there, or bytes that do not come back, is `.unreadable`,
+    /// and bytes that are not UTF-8 are `.notUTF8`. It decodes the bytes
+    /// itself, because `String(contentsOfFile:)` gives a different error
+    /// for bad UTF-8 on each platform.
+    private static func readConfigFile(_ path: String) throws(ConfigReadError) -> String? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            return nil
+        }
+        guard !isDirectory.boolValue else { throw .unreadable }
+        guard let data = FileManager.default.contents(atPath: path) else { throw .unreadable }
+        guard let text = String(data: data, encoding: .utf8) else { throw .notUTF8 }
+        return text
     }
 
     /// Reads the context. `.text` is the text itself; `.file` is read as

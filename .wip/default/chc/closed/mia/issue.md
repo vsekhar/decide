@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-21T20:15:50-04:00
-updated: 2026-09-22T22:50:30-04:00
+updated: 2026-09-22T23:11:59-04:00
 may-unblock:
   - rvj
   - jq1
@@ -96,3 +96,9 @@ Verifier findings 2026-09-22 and the fixes, all in the main context. The design 
 _📝 Noted on 2026-09-22 22:50:30-04:00 @ git:c568c93+local_
 
 Verified 2026-09-22 after the fixes: all five acceptance criteria hold. Verifier's differential fuzz against tomllib, 190,000 texts in four passes, found zero TOML-invalid accepts beyond the leading BOM and zero value divergences; 40,000 valid-subset texts had zero wrong rejections; six mutants each fail their named test. Offline suite 168/168. Notes left as is: a tab after a backslash is named raw in the unsupported-escape message (tab is not a control character); a BOM after line 1 reports the shape message with no hint it is invisible.
+
+---
+
+_📝 Noted on 2026-09-22 23:11:59-04:00 @ git:6253340+local_
+
+Rule change 2026-09-22 from rvj's verification: a value that is only whitespace is empty too, and throws "<KEY> is empty". Every consumer trims, so a blank value could never be used, and letting it through would hide a farther file's value with a message naming no file. Returned values stay untrimmed.

@@ -13,6 +13,11 @@ This needs no key and no network. A scripted model from
 `DecisionModelsTesting` stands in for the real one, and the run tests
 inject `String` streams for stdout and stderr.
 
+The config tests read no real file. The loader's tests use an in-memory
+reader, and the run tests build a temp tree with `HOME` inside it, so the
+lookup never leaves the temp directory. `Decide.run` reads config only when
+given a working directory, and the tests that pass none stay as they were.
+
 Build with warnings as errors before you commit:
 
 ```sh

@@ -246,6 +246,10 @@ struct ConfigFileTests {
         #expect(throws: failure(line: 1, "DECIDE_MODEL is empty")) {
             try parse("DECIDE_MODEL = ''\n")
         }
+        // Only whitespace counts as empty too, since every consumer trims.
+        #expect(throws: failure(line: 1, "DECIDE_MODEL is empty")) {
+            try parse("DECIDE_MODEL = \" \\t \"\n")
+        }
     }
 
     @Test("An unterminated string is refused")
