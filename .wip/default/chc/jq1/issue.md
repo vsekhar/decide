@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-21T20:15:50-04:00
-updated: 2026-09-21T20:15:50-04:00
+updated: 2026-09-22T22:47:16-04:00
 blocked-on:
   - mia
   - rvj
@@ -50,3 +50,15 @@ Parent wip/chc. Blocked on wip/mia and wip/rvj. wip/brs set the pattern for a fl
 - [ ] `--project` writes `./.decide/config`; `DECIDE_MODEL_API_KEY` with `--project` is refused and nothing is written.
 - [ ] Bad input exits 10 with a message and leaves the target untouched; success prints nothing and exits 0.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean, `swift test --skip DecideLive` passes, and `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-22 22:26:34-04:00 @ git:c568c93+local_
+
+Observed 2026-09-22: README commit c568c93 (the user's rewrite) put a TODO in "Install and Setup": "convert these to `decide --setconfig --model jev-latest --api-key abc123...`". That shape (one flag plus --model and --api-key) differs from this issue's `--set-config KEY=VALUE` with `--project`. Before implementing, confirm with the user which shape they want; the issue's design was decided 2026-09-21 and the TODO is newer.
+
+---
+
+_📝 Noted on 2026-09-22 22:47:16-04:00 @ git:c568c93+local_
+
+From mia's verification 2026-09-22: `ConfigFile.unknownKeyProblem(_:)` interpolates its argument as given; the parser bounds the key to `A-Z a-z 0-9 _ -` before calling it. The `--set-config` parser must do the same check before it names a user-supplied key in a message, or the message can carry arbitrary text from the command line.

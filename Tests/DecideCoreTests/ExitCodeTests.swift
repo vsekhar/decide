@@ -42,6 +42,8 @@ private func errorTable() -> [(error: any Error, code: Int32)] {
         (ConfigurationError.missingModel, 10),
         (ConfigurationError.malformedModel("jev-latest"), 10),
         (ConfigurationError.unknownProvider("foo"), 10),
+        (ConfigError(path: "p", line: 3, problem: "x"), 10),
+        (ConfigError(path: "p", line: 0, problem: "x"), 10),
         (CancellationError(), 11),
         (Unknown(), 11),
         (
@@ -123,6 +125,29 @@ struct ExitCodeTests {
             ExitCode.message(for: UsageError("no question given"))
                 == "Error: no question given"
         )
+    }
+
+    @Test("A config error names the file and the line")
+    func configMessage() {
+        let line = ConfigError(
+            path: "/a/.decide/config",
+            line: 3,
+            problem: ConfigFile.unknownKeyProblem("X")
+        )
+        #expect(
+            ExitCode.message(for: line)
+                == """
+                Error: /a/.decide/config:3: unknown key "X"; \
+                the keys are DECIDE_MODEL and DECIDE_MODEL_API_KEY
+                """
+        )
+
+        let file = ConfigError(
+            path: "/a/.decide/config",
+            line: 0,
+            problem: "is not valid UTF-8"
+        )
+        #expect(ExitCode.message(for: file) == "Error: /a/.decide/config: is not valid UTF-8")
     }
 
     @Test("An unsure run names every question, its confidence, and its bar")

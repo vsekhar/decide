@@ -27,6 +27,8 @@ public enum ExitCode {
             setup
         case is ConfigurationError:
             setup
+        case is ConfigError:
+            setup
         case is UnsureError:
             unsure
         case let error as DecisionError:
@@ -42,6 +44,8 @@ public enum ExitCode {
         case let error as UsageError:
             oneLine("Error: \(error.message)")
         case let error as ConfigurationError:
+            oneLine(message(for: error))
+        case let error as ConfigError:
             oneLine(message(for: error))
         case let error as DecisionError:
             oneLine(message(for: error))
@@ -84,6 +88,16 @@ public enum ExitCode {
             Error: \(ModelConfiguration.modelVariable) names an unknown provider "\(name)". \
             Providers: \(providerList).
             """
+        }
+    }
+
+    /// Names the file, and the line when the problem is on one. Line 0 is
+    /// the whole file, so the message drops it.
+    private static func message(for error: ConfigError) -> String {
+        if error.line == 0 {
+            "Error: \(error.path): \(error.problem)"
+        } else {
+            "Error: \(error.path):\(error.line): \(error.problem)"
         }
     }
 
