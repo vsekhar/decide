@@ -1,6 +1,9 @@
-/// What the command line asks for: help, or one run.
+/// What the command line asks for: help, the version, or one run.
 public enum ParseResult: Equatable, Sendable {
     case help
+    /// `--version`. `alone` is false when any other argument came with it,
+    /// which is a usage error that `Decide.run` reports after the version.
+    case version(alone: Bool)
     case run(Invocation)
 }
 
@@ -14,10 +17,12 @@ public enum CommandLineParser {
     /// yes/no question; `--yes` and `--no` set what it prints.
     /// `--min-confidence` after a question sets the confidence its answer
     /// needs. `--quiet` or `-q` keeps the one yes/no question's answer off
-    /// stdout. `--help` or `-h` anywhere returns `.help`. Anything the tool
-    /// cannot run throws a `UsageError` that names the problem.
+    /// stdout. `--version` anywhere returns `.version(alone:)`, alone or
+    /// not. Without it, `--help` or `-h` anywhere returns `.help`. Anything
+    /// the tool cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
+        if arguments.contains("--version") { return .version(alone: arguments.count == 1) }
         if arguments.contains(where: { $0 == "--help" || $0 == "-h" }) { return .help }
 
         var context: ContextSource?

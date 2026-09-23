@@ -5,6 +5,8 @@ import Foundation
 public enum Decide {
     /// The text `--help` prints.
     public static let usage = """
+        decide \(version)
+
         Usage: decide --context <text> "<question>" [<flags>] ["<question>" [<flags>]]...
 
         Ask a decision model one or more questions about one context. The answer
@@ -28,6 +30,7 @@ public enum Decide {
                                  means P(yes) at least (1 + n) / 2 for yes.
           --quiet, -q            Print no answer. Only with one yes/no question.
           --help, -h             Print this text.
+          --version              Print the version and exit. Takes no other arguments.
 
         Environment:
           DECIDE_MODEL           provider:model, for example typesafe:jev-latest
@@ -63,6 +66,14 @@ public enum Decide {
         switch parsed {
         case .help:
             print(usage, to: &stdout)
+            return ExitCode.decided
+        case .version(let alone):
+            guard alone else {
+                print(version, to: &stderr)
+                print("Error: --version takes no other arguments", to: &stderr)
+                return ExitCode.setup
+            }
+            print(version, to: &stdout)
             return ExitCode.decided
         case .run(let parsedInvocation):
             invocation = parsedInvocation

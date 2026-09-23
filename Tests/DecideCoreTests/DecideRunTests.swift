@@ -417,6 +417,52 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
+    @Test("--version prints the version on stdout and exits 0")
+    func version() async {
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--version"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == Decide.version + "\n")
+        #expect(err.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("--version with other arguments prints the version on stderr and exits 10")
+    func versionWithArguments() async {
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--version", "--context", "c"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(out.isEmpty)
+        #expect(err == Decide.version + "\nError: --version takes no other arguments\n")
+        #expect(model.callCount == 0)
+    }
+
+    @Test("The usage text shows the version and lists --version")
+    func usageShowsVersion() {
+        #expect(Decide.usage.hasPrefix("decide " + Decide.version + "\n\n"))
+        #expect(Decide.usage.contains("  --version "))
+    }
+
     @Test("An empty environment and no injected model exits 10")
     func noModel() async {
         var out = ""

@@ -159,6 +159,14 @@ bin=$(swift build --show-bin-path)/decide
 env -u DECIDE_MODEL "$bin" --context x "Q?" --option a --option b 2>/dev/null | wc -c   # 0
 ```
 
+`--version` with any other argument is a usage error, so the version goes
+to stderr and stdout stays empty there too:
+
+```sh
+"$bin" --version --context x; echo $?                 # the version and the error, then 10
+"$bin" --version --context x 2>/dev/null | wc -c      # 0
+```
+
 With `.env` sourced, one yes/no question exits 0 or 1 and prints nothing
 under `-q`:
 

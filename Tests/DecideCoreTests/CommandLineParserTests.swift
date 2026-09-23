@@ -301,6 +301,26 @@ struct CommandLineParserTests {
         #expect(try CommandLineParser.parse(["--bogus", "--help"]) == .help)
     }
 
+    @Test("--version alone asks for the version")
+    func version() throws {
+        #expect(try CommandLineParser.parse(["--version"]) == .version(alone: true))
+    }
+
+    @Test("--version with anything else is the version, not alone")
+    func versionAnywhere() throws {
+        #expect(try CommandLineParser.parse(["--version", "--help"]) == .version(alone: false))
+        #expect(try CommandLineParser.parse(["--help", "--version"]) == .version(alone: false))
+        #expect(try CommandLineParser.parse(["--context", "c", "Q", "--version"]) == .version(alone: false))
+        #expect(try CommandLineParser.parse(["--bogus", "--version"]) == .version(alone: false))
+    }
+
+    @Test("--version takes no value")
+    func versionWithValue() {
+        #expect(throws: UsageError("unknown flag: --version=1")) {
+            try CommandLineParser.parse(["--version=1"])
+        }
+    }
+
     @Test("An empty argument list is an error")
     func noArguments() {
         #expect(throws: UsageError("no arguments given")) {

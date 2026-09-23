@@ -35,6 +35,9 @@ targets are awkward.
 - `Sources/DecideCore/StandardStreams.swift`: stdout and stderr as
   `TextOutputStream` values.
 - `Sources/DecideCore/Decide.swift`: `Decide.run` and the usage text.
+- `Sources/DecideCore/Version.swift`: `Decide.version`, the string
+  `--version` prints and `--help` shows. The Release section says when to
+  bump it.
 - `Tests/DecideCoreTests/`: Swift Testing. One file per source file, plus
   `DecideRunTests` for a whole run with a scripted model and
   `DecideLiveTests` for the real model.
@@ -63,11 +66,18 @@ what is next, and the design notes behind each change.
 ## Release
 
 Users install with Homebrew from the tap at
-https://github.com/vsekhar/homebrew-tap. A release is a tag here plus a
-formula bump there. The tap's CI builds a bottle, a prebuilt binary, for
-each bump. Tags are bare versions, like the library's.
+https://github.com/vsekhar/homebrew-tap. A release is a version bump and a
+tag here plus a formula bump there. The tap's CI builds a bottle, a prebuilt
+binary, for each bump. Tags are bare versions, like the library's.
 
-1. Tag the commit, push it, and publish the release:
+1. Set `Decide.version` in `Sources/DecideCore/Version.swift` to the tag
+   and commit. SwiftPM injects no version into a binary, and Homebrew
+   builds from a tarball with no `.git`, so this constant is the only
+   source. The tap's formula test runs `decide --version` and compares it
+   to the formula's version, so a constant that lags the tag turns the
+   `brew test-bot` run in step 4 red.
+
+2. Tag the commit, push it, and publish the release:
 
    ```sh
    git tag -a 0.2.0 -m "decide 0.2.0"
@@ -75,7 +85,7 @@ each bump. Tags are bare versions, like the library's.
    gh release create 0.2.0 --title "decide 0.2.0" --notes "..."
    ```
 
-2. Open a pull request on the tap that points the formula at the new tag.
+3. Open a pull request on the tap that points the formula at the new tag.
    Homebrew rewrites `url` and `sha256` and opens the pull request, or do
    the same by hand on a branch:
 
@@ -90,13 +100,13 @@ each bump. Tags are bare versions, like the library's.
    to `git@github.com:vsekhar/homebrew-tap.git` once with `git remote
    set-url` in `$(brew --repository vsekhar/tap)`.
 
-3. Wait for the pull request's `brew test-bot` run. It builds the formula
+4. Wait for the pull request's `brew test-bot` run. It builds the formula
    from source on macOS 26, runs `brew test`, and keeps the bottle as an
    artifact. A red run means the bump is wrong. Fix it on the branch. The
    bottle serves macOS 26 and later; macOS 15 builds from source, and the
    workflow file says why the macOS 15 runner cannot build it.
 
-4. Publish. This uploads the bottle to the tap's `bottles` release, writes
+5. Publish. This uploads the bottle to the tap's `bottles` release, writes
    the bottle block into the formula, commits to main, and closes the
    pull request:
 
