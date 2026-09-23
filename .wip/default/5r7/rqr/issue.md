@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:25:20-04:00
-updated: 2026-09-23T01:25:20-04:00
+updated: 2026-09-23T01:35:01-04:00
 blocked-on:
   - hah
   - qc4
@@ -55,3 +55,9 @@ Parent: JSON question files. Blocked on the decoder child and wip/qc4. The live 
 - [ ] The live test passes with a key.
 - [ ] `--help` describes the two file kinds.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 01:35:01-04:00 @ git:5da7fb9+local_
+
+Coordination 2026-09-23: the run-wide check that a question name is used once ("question name \"team\" is used twice") lives in CommandLineParser.parse, filed with the --name flag issue byu. Whichever lands first adds it over all finished questions; the other relies on it and tests the JSON case.

@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:04:39-04:00
-updated: 2026-09-23T01:25:20-04:00
+updated: 2026-09-23T01:35:01-04:00
 blocked-on:
   - jt3
 may-unblock:
@@ -74,3 +74,9 @@ Child of the `--questions` parent; blocked on the tokenizer sibling. Reuses `Con
 _📝 Noted on 2026-09-23 01:25:20-04:00 @ git:bb3f1e4+local_
 
 Amended 2026-09-23 while filing JSON question files: the expansion returns items, not strings, so a JSON file's questions can be spliced as finished questions. See the Approach's Expansion paragraph. This issue produces only .token items; the JSON child of the JSON parent produces .questions and is blocked on this issue.
+
+---
+
+_📝 Noted on 2026-09-23 01:35:01-04:00 @ git:5da7fb9+local_
+
+Coordination 2026-09-23: the --name flag (issue byu) is a question flag, so a text question file may hold it. Add --name to the allowed list here if byu has landed; otherwise byu adds it.
