@@ -33,7 +33,7 @@ struct RunnerTests {
             kind: .verdict(yes: DecideCore.Option(id: "Yes"), no: DecideCore.Option(id: "No"))
         ),
     ]
-    static let context = "The parcel never arrived and I want my money back."
+    static let context: State = .text("The parcel never arrived and I want my money back.")
     static let teamProbabilities = ["returns": 0.91, "shipping": 0.06, "billing": 0.03]
     /// What the model reports for the rating, keyed by level index.
     static let urgencyProbabilities = [0: 0.15, 1: 0.55, 2: 0.30]
@@ -152,7 +152,27 @@ struct RunnerTests {
         #expect(model.callCount == 1)
         let request = try #require(box.request)
         #expect(request.questionnaire.specs.count == 3)
-        #expect(request.state == .text(Self.context))
+        #expect(request.state == Self.context)
+    }
+
+    @Test("An object of named contexts sends the request with that object as its state")
+    func namedContextsRequest() async throws {
+        let box = RequestBox()
+        let model = ScriptedModel { request in
+            box.record(request)
+            return Self.allAnswers
+        }
+        let session = DecisionSession(model: model)
+
+        _ = try await Runner.decide(
+            Self.questions,
+            about: .object(["ticket": .text("t"), "refund_policy": .text("p")]),
+            using: session
+        )
+
+        #expect(model.callCount == 1)
+        let request = try #require(box.request)
+        #expect(request.state == .object(["ticket": .text("t"), "refund_policy": .text("p")]))
     }
 
     @Test("A nil context sends a request with no state")

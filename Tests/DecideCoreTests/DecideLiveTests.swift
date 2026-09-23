@@ -86,6 +86,32 @@ struct DecideLiveTests {
         #expect(["Yes", "No"].contains(lines[2]))
     }
 
+    @Test("decide answers the README refund example from two named contexts")
+    func refundFromNamedContexts() async {
+        guard let environment = liveEnvironment() else { return }
+
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: [
+                "--context", "refund_policy=Refunds are allowed within 30 days of delivery.",
+                "--context",
+                "ticket=I received the shoes five days ago and want my money back. Order 4471.",
+                "Should we issue a refund?",
+                "--yes", "yes=Allowed by refund_policy and requested in ticket",
+                "--no", "no",
+            ],
+            environment: environment,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+    }
+
     @Test("decide answers a question with no context")
     func answersWithoutContext() async {
         guard let environment = liveEnvironment() else { return }

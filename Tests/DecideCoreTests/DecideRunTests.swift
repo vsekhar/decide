@@ -405,6 +405,121 @@ struct DecideRunTests {
         #expect(model.callCount == 0)
     }
 
+    @Test("Two named @file contexts reach the model as one object")
+    func namedFileContexts() async throws {
+        let directory = FileManager.default.temporaryDirectory
+        let ticketURL = directory.appendingPathComponent("\(UUID().uuidString).txt")
+        let policyURL = directory.appendingPathComponent("\(UUID().uuidString).txt")
+        let ticketText = "The parcel never arrived and I want my money back.\n"
+        let policyText = "Refunds are allowed within 30 days of delivery.\n"
+        try ticketText.write(to: ticketURL, atomically: true, encoding: .utf8)
+        try policyText.write(to: policyURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: ticketURL)
+            try? FileManager.default.removeItem(at: policyURL)
+        }
+
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: [
+                "--context", "ticket=@\(ticketURL.path)",
+                "--context", "refund_policy=@\(policyURL.path)",
+            ] + Self.teamQuestion,
+            environment: [:],
+            model: Self.triageModel(recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\n")
+        #expect(err.isEmpty)
+        let request = try #require(box.request)
+        #expect(
+            request.state
+                == .object(["ticket": .text(ticketText), "refund_policy": .text(policyText)])
+        )
+    }
+
+    @Test("One named context reaches the model as a one-field object")
+    func oneNamedContext() async throws {
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "ticket=some ticket text"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.triageModel(recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\n")
+        #expect(err.isEmpty)
+        let request = try #require(box.request)
+        #expect(request.state == .object(["ticket": .text("some ticket text")]))
+    }
+
+    @Test("A missing named context file exits 10 and reaches no model")
+    func missingNamedFile() async {
+        let path = "/nonexistent/\(UUID().uuidString).txt"
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "ticket=@\(path)"] + Self.teamQuestion,
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains(path))
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A named and an unnamed context together exit 10 with the usage text")
+    func mixedContexts() async {
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "ticket=t", "--context", "u"] + Self.teamQuestion,
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(
+            err.hasPrefix(
+                """
+                Error: every --context needs a name when there is more than one, \
+                like --context ticket=@ticket.txt
+                """
+            )
+        )
+        #expect(err.contains(Decide.usage))
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("The usage text lists the named context forms")
+    func usageListsNamedContexts() {
+        #expect(Decide.usage.contains("  --context <name>=<text> "))
+        #expect(Decide.usage.contains("  --context <name>=@<path> "))
+    }
+
     @Test("No arguments prints the usage text on stderr and exits 10")
     func noArguments() async {
         var out = ""

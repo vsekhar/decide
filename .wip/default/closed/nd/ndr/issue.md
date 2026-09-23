@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T00:50:20-04:00
-updated: 2026-09-23T00:50:20-04:00
+updated: 2026-09-23T02:40:02-04:00
 ---
 
 # Named contexts: several --context name=... flags become one JSON object state
@@ -72,3 +72,38 @@ wip/5gr (optional context; its note anticipated this type change), wip/chc (list
 - [ ] More than one `--context` with any unnamed one, a repeated name, an invalid name, a blank named value, and `<name>=@` each exit 10 with the message above and nothing on stdout.
 - [ ] `--help` lists the named forms.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 02:21:26-04:00 @ git:f6f9edf+local_
+
+Design record (2026-09-23), the decisions the Approach left open. Implemented as written there, plus:
+
+1. Parser shape. The loop collects each --context value as a private ContextEntry (.unnamed(ContextSource) or .named(NamedContext)), in order. A private contextEntry(from:) classifies one value; a private context(from: [ContextEntry]) turns the list into Context? after the loop. A private isName(_:) holds the identifier rule, on Character: first is ASCII and (letter or _), the rest ASCII and (letter, digit, or _).
+2. Error precedence, after the loop: the mix check (every --context needs a name...) runs before the repeated-name check, so `a=@x a=@y @z` reports the mix. Both messages are the issue's, verbatim.
+3. contextSource(from:) takes a second parameter, the text the names-no-file message quotes before the @: "--context " for an unnamed value and "--context ticket=" for a named one. So the two messages are `--context @ names no file` and `--context ticket=@ names no file` from one function.
+4. A value whose text before the first = is non-empty and whitespace-free is a name attempt even when it is not identifier-like: `@ticket.txt=x` and `http://x=y` throw the invalid-name error. That is the decided rule's consequence; such text needs a file.
+5. Decide.loadState builds the object by assignment in a loop (fields[name] = .text(text)), not Dictionary(uniqueKeysWithValues:), because Invocation is public with a public init and a trap on a repeated name is worse than last-wins. Context.named's doc says the parser keeps names unique and the run keeps the last of a repeat.
+6. The usage line and the "about one context or none" sentence stay; only the two flag lines from the Approach are added.
+7. RunnerTests.context becomes a State (.text of the same sentence) so the ~25 call sites stay `about: Self.context`; the oneRequest expectation becomes `request.state == Self.context`.
+8. Existing parser tests wrap the old context values in .single(...). The twoContexts test is removed with its message.
+
+---
+
+_📝 Noted on 2026-09-23 02:30:54-04:00 @ git:f6f9edf+local_
+
+Implementation (2026-09-23): a worker implemented the Approach and the design record as written; no open question came up. Points beyond the record:
+- Long messages (the mix error) use the repo's `"""` block with a `\` line break, as ExitCode.swift and ConfigFiles.swift do; the run-time string is one line and the tests match it with the same block.
+- contextEntry(from:) uses two guards that share one `.unnamed` return (no `=`; then empty or whitespace name), because an irrefutable `case let` in a guard risks a warning under -warnings-as-errors.
+- The post-loop call is `try Self.context(from: contexts)`, qualified because the local is also named `context`.
+- loadState carries a comment on why it assigns into the dictionary instead of Dictionary(uniqueKeysWithValues:).
+Checks: build with -warnings-as-errors clean; `swift test --skip DecideLive` 254 tests pass; the live suite passed once, 3 tests, the new refund test answered `yes`.
+Noticed, out of scope: the README composite example (line ~72) ends its `--yes` line with a trailing `\` and then `no` on its own line, so a shell would read `no` as a second question. Either the `\` is a typo before the output `no`, or `--no no` is missing.
+
+---
+
+_📝 Noted on 2026-09-23 02:40:02-04:00 @ git:f6f9edf+local_
+
+Summary (2026-09-23): done. `--context name=value` parses to a named context; several make one JSON object state, one named makes a one-field object, one unnamed stays a text. Types: Context (.single/.named), NamedContext. Parser: ContextEntry, contextEntry(from:), isName, contextSource(from:as:), context(from:); the five new usage errors, verbatim from the issue; `--context was given twice` removed. Runner.decide takes State?. Decide.loadState assembles the object; usage lists the two named forms.
+Verifier: all five acceptance criteria hold, no blockers. Acted on two notes: added tests that `@t.txt=x` and `http://x=y` are invalid names (a mutant that treats @:/ prefixes as text kills exactly those two rows), and the parse doc now says a bad name is an error, not text. Left as notes: a line with only contexts and no question now reports "no question given" before the mix check; NamedContext.init has no doc comment, like every memberwise init in the file; Context.named([]) would send {} but the parser never builds it.
+Final: warnings-as-errors build clean; `swift test` with .env sourced, 257 tests in 8 suites passed, live included.

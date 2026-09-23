@@ -65,8 +65,8 @@ public enum Runner {
     /// Sends every question in one request and returns the answers in question
     /// order.
     ///
-    /// A `nil` context sends the request with no state, for questions that
-    /// carry their own facts.
+    /// The state is the text of one context, an object of named contexts, or
+    /// `nil` for no state, for questions that carry their own facts.
     ///
     /// The library checks each record against its question before the tool
     /// sees it: the kind matches, every index and probability is on the
@@ -80,13 +80,13 @@ public enum Runner {
     /// bar compares against the same number `Outcome.confidence` holds.
     public static func decide(
         _ questions: [Question],
-        about context: String?,
+        about state: State?,
         using session: DecisionSession
     ) async throws -> [Outcome] {
         let questionnaire = makeQuestionnaire(questions)
         let answers: Answers
-        if let context {
-            answers = try await session.decide(questionnaire, about: context)
+        if let state {
+            answers = try await session.decide(questionnaire, about: state)
         } else {
             answers = try await session.decide(questionnaire)
         }

@@ -44,7 +44,11 @@ public enum CommandLineParser {
     /// `--min-confidence` after a question sets the confidence its answer
     /// needs. `--quiet` or `-q` keeps the one yes/no question's answer off
     /// stdout. `--context` is optional; without it the questions run with no
-    /// state. `--version` anywhere returns `.version(alone:)`, alone or not.
+    /// state. A `--context` whose value starts with a name and `=` is a named
+    /// context, and the model sees every named context as one field of one
+    /// object; a name that is not an identifier is an error, not text. A
+    /// line with more than one `--context` must name every one.
+    /// `--version` anywhere returns `.version(alone:)`, alone or not.
     /// Without it, `--help` or `-h` anywhere returns `.help`. `--set-config`
     /// after those two takes the line for itself: `--model`, `--api-key`, and
     /// `--project` join it, and any other token is an error. Anything the
@@ -55,7 +59,7 @@ public enum CommandLineParser {
         if arguments.contains(where: { $0 == "--help" || $0 == "-h" }) { return .help }
         if arguments.contains("--set-config") { return .setConfig(try parseSetConfig(arguments)) }
 
-        var context: ContextSource?
+        var contexts: [ContextEntry] = []
         var questions: [QuestionBuilder] = []
         var quiet = false
         var index = 0
@@ -71,8 +75,7 @@ public enum CommandLineParser {
             }
 
             if let value = try flagValue(of: "--context", token: token, arguments: arguments, index: &index) {
-                guard context == nil else { throw UsageError("--context was given twice") }
-                context = try contextSource(from: value)
+                contexts.append(try contextEntry(from: value))
                 continue
             }
 
@@ -120,6 +123,8 @@ public enum CommandLineParser {
             let question = try builder.question(number: offset + 1)
             finished.append(question)
         }
+
+        let context = try Self.context(from: contexts)
 
         if quiet {
             guard finished.count == 1, case .verdict = finished[0].kind else {
@@ -200,6 +205,13 @@ public enum CommandLineParser {
             return flag
         }
         return nil
+    }
+
+    /// One `--context` value as the parser reads it, before the line's values
+    /// are checked together.
+    private enum ContextEntry {
+        case unnamed(ContextSource)
+        case named(NamedContext)
     }
 
     /// One question as the parser builds it. `flag` is the first kind flag
@@ -389,13 +401,80 @@ public enum CommandLineParser {
         return nil
     }
 
-    /// Reads a `--context` value. A leading `@` names a file. Anything else is
-    /// the text itself, and a later `@` stays literal.
-    private static func contextSource(from value: String) throws(UsageError) -> ContextSource {
+    /// Reads one `--context` value. The text before the first `=` is a name
+    /// attempt when it is non-empty and holds no whitespace: a valid name makes
+    /// a named context, and an invalid one is an error. Any other value is
+    /// unnamed: the text itself, or a file when it starts with `@`.
+    private static func contextEntry(from value: String) throws(UsageError) -> ContextEntry {
+        guard let separator = value.firstIndex(of: "=") else {
+            return .unnamed(try contextSource(from: value, as: "--context "))
+        }
+        let name = String(value[value.startIndex..<separator])
+        guard !name.isEmpty, !name.contains(where: \.isWhitespace) else {
+            return .unnamed(try contextSource(from: value, as: "--context "))
+        }
+        guard isName(name) else {
+            throw UsageError(
+                "--context name \"\(name)\" is not valid: a letter or _ then letters, digits, or _"
+            )
+        }
+        let rest = String(value[value.index(after: separator)...])
+        guard !rest.isEmpty else { throw UsageError("--context \(name)= has no value") }
+        let source = try contextSource(from: rest, as: "--context \(name)=")
+        return .named(NamedContext(name: name, source: source))
+    }
+
+    /// Whether the text is a name: ASCII, a letter or `_` first, then letters,
+    /// digits, or `_`.
+    private static func isName(_ text: String) -> Bool {
+        guard let first = text.first, first.isASCII, first.isLetter || first == "_" else {
+            return false
+        }
+        return text.dropFirst().allSatisfy { character in
+            character.isASCII && (character.isLetter || character.isNumber || character == "_")
+        }
+    }
+
+    /// Reads the text or path of a `--context` value. A leading `@` names a
+    /// file. Anything else is the text itself, and a later `@` stays literal.
+    /// `prefix` is what the names-no-file message quotes before the `@`:
+    /// `--context ` for an unnamed value, `--context ticket=` for a named one.
+    private static func contextSource(
+        from value: String,
+        as prefix: String
+    ) throws(UsageError) -> ContextSource {
         guard value.hasPrefix("@") else { return .text(value) }
         let path = String(value.dropFirst())
-        guard !path.isEmpty else { throw UsageError("--context @ names no file") }
+        guard !path.isEmpty else { throw UsageError("\(prefix)@ names no file") }
         return .file(path)
+    }
+
+    /// The line's context from its `--context` values, in order. None is nil,
+    /// one unnamed value is `.single`, and named values are `.named`. With more
+    /// than one value every one needs a name, and no name may repeat. The mix
+    /// check runs first, so a line with both problems reports the mix.
+    private static func context(from entries: [ContextEntry]) throws(UsageError) -> Context? {
+        guard !entries.isEmpty else { return nil }
+        if entries.count == 1, case .unnamed(let source) = entries[0] { return .single(source) }
+        var named: [NamedContext] = []
+        for entry in entries {
+            guard case .named(let context) = entry else {
+                throw UsageError(
+                    """
+                    every --context needs a name when there is more than one, \
+                    like --context ticket=@ticket.txt
+                    """
+                )
+            }
+            named.append(context)
+        }
+        var seen: Set<String> = []
+        for context in named {
+            guard seen.insert(context.name).inserted else {
+                throw UsageError("--context names \"\(context.name)\" twice")
+            }
+        }
+        return .named(named)
     }
 
     /// Reads an `--option`, `--level`, `--yes`, or `--no` value. The first

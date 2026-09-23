@@ -17,7 +17,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .file("ticket.txt"),
+                        context: .single(.file("ticket.txt")),
                         questions: [
                             Question(
                                 instructions: "Which team handles this ticket?",
@@ -46,7 +46,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .file("ticket.txt"),
+                        context: .single(.file("ticket.txt")),
                         questions: [
                             Question(
                                 instructions: "How urgent is this ticket?",
@@ -75,7 +75,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .file("ticket.txt"),
+                        context: .single(.file("ticket.txt")),
                         questions: [
                             Question(
                                 instructions: "How urgent is this ticket?",
@@ -109,7 +109,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .file("ticket.txt"),
+                        context: .single(.file("ticket.txt")),
                         questions: [
                             Question(
                                 instructions: "Should we issue a refund?",
@@ -191,7 +191,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .file("ticket.txt"),
+                        context: .single(.file("ticket.txt")),
                         questions: [
                             Question(
                                 instructions: "Which team handles this ticket?",
@@ -223,25 +223,137 @@ struct CommandLineParserTests {
     @Test("--context=@path names a file")
     func contextEqualsFile() throws {
         let result = try CommandLineParser.parse(["--context=@ticket.txt", "Q", "--option", "a"])
-        #expect(result == .run(Invocation(context: .file("ticket.txt"), questions: [question])))
+        #expect(result == .run(Invocation(context: .single(.file("ticket.txt")), questions: [question])))
     }
 
     @Test("--context takes text with spaces verbatim")
     func contextText() throws {
         let result = try CommandLineParser.parse(["--context", "text with spaces", "Q", "--option", "a"])
-        #expect(result == .run(Invocation(context: .text("text with spaces"), questions: [question])))
+        #expect(result == .run(Invocation(context: .single(.text("text with spaces")), questions: [question])))
     }
 
     @Test("--context= with nothing after the = is empty text")
     func contextEqualsEmpty() throws {
         let result = try CommandLineParser.parse(["--context=", "Q", "--option", "a"])
-        #expect(result == .run(Invocation(context: .text(""), questions: [question])))
+        #expect(result == .run(Invocation(context: .single(.text("")), questions: [question])))
     }
 
     @Test("An @ after the first character stays literal text")
     func contextLateAtSign() throws {
         let result = try CommandLineParser.parse(["--context", "mail me@example.com", "Q", "--option", "a"])
-        #expect(result == .run(Invocation(context: .text("mail me@example.com"), questions: [question])))
+        #expect(result == .run(Invocation(context: .single(.text("mail me@example.com")), questions: [question])))
+    }
+
+    @Test("--context name=@path is a named context from a file")
+    func namedFileContext() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "ticket=@ticket.txt", "Q", "--option", "a",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .named([NamedContext(name: "ticket", source: .file("ticket.txt"))]),
+                        questions: [question]
+                    )
+                )
+        )
+    }
+
+    @Test("The README two-file example parses to two named contexts in order")
+    func twoNamedContexts() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "ticket=@ticket.txt",
+            "--context", "refund_policy=@refund_policy.txt",
+            "Should we issue a refund?",
+            "--yes", "yes=Allowed by refund_policy and requested in ticket",
+            "--no", "no",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .named([
+                            NamedContext(name: "ticket", source: .file("ticket.txt")),
+                            NamedContext(name: "refund_policy", source: .file("refund_policy.txt")),
+                        ]),
+                        questions: [
+                            Question(
+                                instructions: "Should we issue a refund?",
+                                kind: .verdict(
+                                    yes: Option(
+                                        id: "yes",
+                                        description: "Allowed by refund_policy and requested in ticket"
+                                    ),
+                                    no: Option(id: "no")
+                                )
+                            )
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("--context name=text is a named context of that text")
+    func namedTextContext() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "policy=some text", "Q", "--option", "a",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .named([NamedContext(name: "policy", source: .text("some text"))]),
+                        questions: [question]
+                    )
+                )
+        )
+    }
+
+    @Test("Three named contexts keep their command-line order")
+    func threeNamedContexts() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "a=1", "--context", "b=2", "--context", "c=3", "Q", "--option", "a",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .named([
+                            NamedContext(name: "a", source: .text("1")),
+                            NamedContext(name: "b", source: .text("2")),
+                            NamedContext(name: "c", source: .text("3")),
+                        ]),
+                        questions: [question]
+                    )
+                )
+        )
+    }
+
+    @Test("--context=name=@path is a named context from a file")
+    func contextEqualsNamedFile() throws {
+        let result = try CommandLineParser.parse(["--context=ticket=@t.txt", "Q", "--option", "a"])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .named([NamedContext(name: "ticket", source: .file("t.txt"))]),
+                        questions: [question]
+                    )
+                )
+        )
+    }
+
+    @Test("A value with a space or nothing before its = is one unnamed text")
+    func contextTextWithAnEqualsSign() throws {
+        #expect(
+            try CommandLineParser.parse(["--context", "x = 1", "Q", "--option", "a"])
+                == .run(Invocation(context: .single(.text("x = 1")), questions: [question]))
+        )
+        #expect(
+            try CommandLineParser.parse(["--context", "=foo", "Q", "--option", "a"])
+                == .run(Invocation(context: .single(.text("=foo")), questions: [question]))
+        )
     }
 
     @Test("--option id=desc splits at the first =")
@@ -277,7 +389,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .text("c"),
+                        context: .single(.text("c")),
                         questions: [
                             Question(
                                 instructions: "Q",
@@ -366,17 +478,81 @@ struct CommandLineParserTests {
         )
     }
 
-    @Test("A second --context is an error")
-    func twoContexts() {
-        #expect(throws: UsageError("--context was given twice")) {
-            try CommandLineParser.parse(["--context", "one", "--context", "two", "Q", "--option", "a"])
-        }
-    }
-
     @Test("--context @ names no file")
     func contextBareAtSign() {
         #expect(throws: UsageError("--context @ names no file")) {
             try CommandLineParser.parse(["--context", "@", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("A --context name that is not an identifier is an error")
+    func invalidContextName() {
+        #expect(
+            throws: UsageError(
+                "--context name \"1st\" is not valid: a letter or _ then letters, digits, or _"
+            )
+        ) {
+            try CommandLineParser.parse(["--context", "1st=@f.txt", "Q", "--option", "a"])
+        }
+        #expect(
+            throws: UsageError(
+                "--context name \"a.b\" is not valid: a letter or _ then letters, digits, or _"
+            )
+        ) {
+            try CommandLineParser.parse(["--context", "a.b=@f.txt", "Q", "--option", "a"])
+        }
+        // Text before the first = with no whitespace is a name attempt even
+        // when it looks like a path or a URL, so such text needs a file.
+        #expect(
+            throws: UsageError(
+                "--context name \"@t.txt\" is not valid: a letter or _ then letters, digits, or _"
+            )
+        ) {
+            try CommandLineParser.parse(["--context", "@t.txt=x", "Q", "--option", "a"])
+        }
+        #expect(
+            throws: UsageError(
+                "--context name \"http://x\" is not valid: a letter or _ then letters, digits, or _"
+            )
+        ) {
+            try CommandLineParser.parse(["--context", "http://x=y", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("A named --context with nothing after its = is an error")
+    func namedContextWithoutValue() {
+        #expect(throws: UsageError("--context ticket= has no value")) {
+            try CommandLineParser.parse(["--context", "ticket=", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("--context <name>=@ names no file")
+    func namedContextBareAtSign() {
+        #expect(throws: UsageError("--context ticket=@ names no file")) {
+            try CommandLineParser.parse(["--context", "ticket=@", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("A named and an unnamed --context together are an error, in either order")
+    func mixedContexts() {
+        let mixed = UsageError(
+            """
+            every --context needs a name when there is more than one, \
+            like --context ticket=@ticket.txt
+            """
+        )
+        #expect(throws: mixed) {
+            try CommandLineParser.parse(["--context", "a=@x", "--context", "@y", "Q", "--option", "a"])
+        }
+        #expect(throws: mixed) {
+            try CommandLineParser.parse(["--context", "@y", "--context", "a=@x", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("A --context name used twice is an error")
+    func repeatedContextName() {
+        #expect(throws: UsageError("--context names \"a\" twice")) {
+            try CommandLineParser.parse(["--context", "a=@x", "--context", "a=@x", "Q", "--option", "a"])
         }
     }
 
@@ -537,7 +713,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .text("c"),
+                        context: .single(.text("c")),
                         questions: [
                             Question(instructions: "Q", kind: .rating([Option(id: "a"), Option(id: "b")]))
                         ]
@@ -599,7 +775,7 @@ struct CommandLineParserTests {
                 result
                     == .run(
                         Invocation(
-                            context: .text("c"),
+                            context: .single(.text("c")),
                             questions: [
                                 Question(
                                     instructions: "Q",
@@ -640,7 +816,7 @@ struct CommandLineParserTests {
             result
                 == .run(
                     Invocation(
-                        context: .text("c"),
+                        context: .single(.text("c")),
                         questions: [
                             Question(
                                 instructions: "Q",
@@ -892,7 +1068,7 @@ struct CommandLineParserTests {
     /// One question that holds `option`, for the tests that check an option.
     private func invocation(_ option: Option) -> Invocation {
         Invocation(
-            context: .text("c"),
+            context: .single(.text("c")),
             questions: [Question(instructions: "Q", kind: .choice([option]))]
         )
     }
@@ -900,7 +1076,7 @@ struct CommandLineParserTests {
     /// One yes/no question with those two sides, for the verdict tests.
     private func verdict(yes: Option, no: Option, quiet: Bool = false) -> Invocation {
         Invocation(
-            context: .text("c"),
+            context: .single(.text("c")),
             questions: [Question(instructions: "Q", kind: .verdict(yes: yes, no: no))],
             quiet: quiet
         )

@@ -6,25 +6,51 @@
 public struct Invocation: Sendable, Equatable {
     /// Where the context comes from. `nil` is a run with no context: the
     /// questions carry their own facts.
-    public var context: ContextSource?
+    public var context: Context?
     /// The questions, in command-line order.
     public var questions: [Question]
     /// Print no answer, from `--quiet`. Only a run with one yes/no question
     /// may set it; the exit code carries the answer then.
     public var quiet: Bool
 
-    public init(context: ContextSource?, questions: [Question], quiet: Bool = false) {
+    public init(context: Context?, questions: [Question], quiet: Bool = false) {
         self.context = context
         self.questions = questions
         self.quiet = quiet
     }
 }
 
+/// The context a run is about: one text, or an object of named texts.
+public enum Context: Sendable, Equatable {
+    /// One unnamed `--context`. The model sees its text as the state.
+    case single(ContextSource)
+    /// Every `--context <name>=...`, in command-line order. The model sees
+    /// one JSON object keyed by name, so a question can refer to a name in
+    /// prose. One named context is a one-field object. The parser keeps
+    /// names unique; the run keeps the last of a repeat.
+    case named([NamedContext])
+}
+
+/// One `--context <name>=...`: the name and where its text comes from.
+public struct NamedContext: Sendable, Equatable {
+    /// The field name in the object the model sees: a letter or `_`, then
+    /// letters, digits, or `_`, all ASCII.
+    public let name: String
+    /// The text itself, or the file that holds it.
+    public let source: ContextSource
+
+    public init(name: String, source: ContextSource) {
+        self.name = name
+        self.source = source
+    }
+}
+
 /// Where the context text comes from.
 public enum ContextSource: Sendable, Equatable {
-    /// The text itself, from `--context "..."`.
+    /// The text itself, from `--context "..."` or `--context <name>=...`.
     case text(String)
-    /// A path, from `--context @path`. The run reads it as UTF-8.
+    /// A path, from `--context @path` or `--context <name>=@path`. The run
+    /// reads it as UTF-8.
     case file(String)
 }
 

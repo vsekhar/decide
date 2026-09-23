@@ -16,6 +16,9 @@ public enum Decide {
 
           --context <text>               Optional context for question(s).
           --context @<path>              Context from file.
+          --context <name>=<text>        A named context, as a field of one JSON object.
+          --context <name>=@<path>       A named context from a file. With more than one
+                                         --context, every one needs a name.
           "<question>"                   A question. The flags after it belong to it.
           --option <label>[=explanation] An option the model can choose, optional explanation.
           --level <label>[=explanation]  A level on a scale, low to high, optional explanation.
@@ -120,19 +123,19 @@ public enum Decide {
             return ExitCode.code(for: error)
         }
 
-        let context: String?
-        if let source = invocation.context {
-            guard let loaded = loadContext(source, stderr: &stderr) else { return ExitCode.setup }
-            context = loaded
+        let state: State?
+        if let context = invocation.context {
+            guard let loaded = loadState(context, stderr: &stderr) else { return ExitCode.setup }
+            state = loaded
         } else {
-            context = nil
+            state = nil
         }
 
         let outcomes: [Outcome]
         do {
             let session = DecisionSession(model: decisionModel)
             outcomes = try await Runner.decide(
-                invocation.questions, about: context, using: session
+                invocation.questions, about: state, using: session
             )
         } catch {
             print(ExitCode.message(for: error), to: &stderr)
@@ -293,6 +296,31 @@ public enum Decide {
         guard let data = FileManager.default.contents(atPath: path) else { throw .unreadable }
         guard let text = String(data: data, encoding: .utf8) else { throw .notUTF8 }
         return text
+    }
+
+    /// Reads the run's context into the state the model sees. One context is
+    /// its text. Named contexts are one object, each field the text of the
+    /// context of that name, read in command-line order. Prints the reason to
+    /// `stderr` and returns nil when a file does not read.
+    private static func loadState(
+        _ context: Context,
+        stderr: inout some TextOutputStream
+    ) -> State? {
+        switch context {
+        case .single(let source):
+            guard let text = loadContext(source, stderr: &stderr) else { return nil }
+            return .text(text)
+        case .named(let contexts):
+            // Assignment, not `Dictionary(uniqueKeysWithValues:)`, which traps
+            // on a repeated name. The parser keeps names unique, but
+            // `Invocation` is public, so the last one wins instead.
+            var fields: [String: State] = [:]
+            for context in contexts {
+                guard let text = loadContext(context.source, stderr: &stderr) else { return nil }
+                fields[context.name] = .text(text)
+            }
+            return .object(fields)
+        }
     }
 
     /// Reads the context. `.text` is the text itself; `.file` is read as
