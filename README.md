@@ -82,8 +82,16 @@ Question files can be stored and version controlled.
 ```sh
 # Text question files mimic the command line
 $ cat triage.txt
-"Which team handles this ticket" --option shipping --option billing --option returns
-"How urgent is this ticket" --level not_urgent --level somewhat_urgent --level urgent
+"Which team handles this ticket"
+    --option shipping
+    --option billing
+    --option returns
+
+"How urgent is this ticket"
+    --level not_urgent
+    --level somewhat_urgent
+    --level urgent
+
 "Should we issue a refund"
 
 $ decide --context @ticket.txt --questions @triage.txt
