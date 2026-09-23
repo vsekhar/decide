@@ -120,8 +120,8 @@ struct ExitCodeTests {
     @Test("A usage error keeps its message and gains the prefix")
     func usageMessage() {
         #expect(
-            ExitCode.message(for: UsageError("no --context given"))
-                == "Error: no --context given"
+            ExitCode.message(for: UsageError("no question given"))
+                == "Error: no question given"
         )
     }
 

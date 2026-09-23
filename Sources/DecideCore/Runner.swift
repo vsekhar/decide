@@ -65,6 +65,9 @@ public enum Runner {
     /// Sends every question in one request and returns the answers in question
     /// order.
     ///
+    /// A `nil` context sends the request with no state, for questions that
+    /// carry their own facts.
+    ///
     /// The library checks each record against its question before the tool
     /// sees it: the kind matches, every index and probability is on the
     /// scale, a reported confidence lies in 0 to 1, and every option or level
@@ -77,11 +80,16 @@ public enum Runner {
     /// bar compares against the same number `Outcome.confidence` holds.
     public static func decide(
         _ questions: [Question],
-        about context: String,
+        about context: String?,
         using session: DecisionSession
     ) async throws -> [Outcome] {
         let questionnaire = makeQuestionnaire(questions)
-        let answers = try await session.decide(questionnaire, about: context)
+        let answers: Answers
+        if let context {
+            answers = try await session.decide(questionnaire, about: context)
+        } else {
+            answers = try await session.decide(questionnaire)
+        }
         let outcomes: [Outcome] = try questions.indices.map { index in
             let id = identifier(at: index)
             guard let record = answers.records[id] else {

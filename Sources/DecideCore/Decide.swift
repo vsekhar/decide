@@ -7,14 +7,15 @@ public enum Decide {
     public static let usage = """
         decide \(version)
 
-        Usage: decide --context <text> "<question>" [<flags>] ["<question>" [<flags>]]...
+        Usage: decide [--context <text>] "<question>" [<flags>] ["<question>" [<flags>]]...
 
-        Ask a decision model one or more questions about one context. The answer
-        to each question prints on its own line: the id of the chosen option or
-        level, or yes or no. A question with no --option or --level is a yes/no
-        question; --yes and --no set what it prints.
+        Ask a decision model one or more questions, about one context or none.
+        The answer to each question prints on its own line: the id of the chosen
+        option or level, or yes or no. A question with no --option or --level is
+        a yes/no question; --yes and --no set what it prints.
 
-          --context <text>       The text to judge.
+          --context <text>       The text to judge. Optional: a question that carries
+                                 its own facts needs none.
           --context @<path>      Read the text from a file.
           "<question>"           A question. The flags after it belong to it.
           --option <id>          An option the model can choose. The question is a choice.
@@ -87,8 +88,12 @@ public enum Decide {
             return ExitCode.code(for: error)
         }
 
-        guard let context = loadContext(invocation.context, stderr: &stderr) else {
-            return ExitCode.setup
+        let context: String?
+        if let source = invocation.context {
+            guard let loaded = loadContext(source, stderr: &stderr) else { return ExitCode.setup }
+            context = loaded
+        } else {
+            context = nil
         }
 
         let outcomes: [Outcome]

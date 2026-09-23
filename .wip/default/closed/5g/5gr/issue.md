@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-22T21:14:13-04:00
-updated: 2026-09-22T21:14:13-04:00
+updated: 2026-09-22T21:43:31-04:00
 blocked-on:
   - pxj
 ---
@@ -96,3 +96,29 @@ Blocked on pxj (the library bump). The library's stateless-request work is jl5 i
 - [ ] `Decide.usage` shows `[--context <text>]` and says the context is optional. README has the no-context example.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
 - [ ] The binary, with `.env` sourced: `decide "Is Atlanta the capital of Georgia?"; echo $?` prints `yes` then 0. With `DECIDE_MODEL` unset it exits 10 with nothing on stdout, as TESTING.md requires.
+
+---
+
+_📝 Noted on 2026-09-22 21:29:38-04:00 @ git:f9f5504+local_
+
+Design record 2026-09-22, filling what the Approach leaves open:
+
+- `Invocation.context` field doc comment: "Where the context comes from. `nil` is a run with no context: the questions carry their own facts."
+- `Runner.decide` doc comment gains a second paragraph after "Sends every question in one request and returns the answers in question order.": "A `nil` context sends the request with no state, for questions that carry their own facts."
+- `CommandLineParser.parse` doc comment: after the `--quiet` sentence add "`--context` is optional; without it the questions run with no state."
+- Test names. Parser: keep `func noContext()` under the new title "A line with no --context runs the questions with no context"; add `func noContextQuiet()` "A bare question takes --quiet", `parse(["Q?", "-q"])` gives context nil and quiet true. Runner: `func noContextRequest()` "A nil context sends a request with no state", using `Self.questions`, a recording `ScriptedModel` returning `Self.allAnswers`, asserting `request.state == nil`. DecideRun: `spamModel(probability:)` gains `recording box: RequestBox? = nil` like `triageModel`; `func noContextYes()` "A question with no --context prints yes and exits 0" and `func noContextQuiet()` "-q with no --context prints nothing and exits 0". Live: `func answersWithoutContext()` "decide answers a question with no context".
+- `ExitCodeTests.usageMessage` sample becomes `UsageError("no question given")` == "Error: no question given".
+- TESTING.md line 33 says the live suite "runs the README's team question"; with a second live test it reads "runs README examples through `Decide.run`". One line, so the doc stays true.
+- Composite context stays out of scope. No Package, DEVELOPMENT.md, or formula change.
+
+---
+
+_📝 Noted on 2026-09-22 21:34:48-04:00 @ git:f9f5504+local_
+
+Implemented 2026-09-22 by a worker from the Approach plus the design-record note; diff read in the main context and matches both. Worker's choices, accepted: Runner branches with `let answers: Answers` and `if let context`; the usage paragraph and the parse doc comment were rewrapped for fill; `noContextQuiet` in the parser tests asserts the whole `.run` value; `spamModel` gained `recording box:` like `triageModel`. Checks: build with warnings as errors clean; offline suite 134/134 (was 130); live suite 2/2 with .env; binary prints yes/exit 0 on the Atlanta question, and 0 bytes stdout/exit 10 with DECIDE_MODEL unset. Dead-code check by hand: the only removed symbol is the `no --context given` error, with no reference left outside .wip; every added test is run by the suite; no new import or parameter is unused. Sent to the verifier.
+
+---
+
+_📝 Noted on 2026-09-22 21:43:30-04:00 @ git:f9f5504+local_
+
+Verified 2026-09-22: all eight acceptance criteria hold. The verifier killed three mutants in a scratch clone (Runner sending .text(""), Decide.run substituting "", parser defaulting to .text("")); each new test fails against the one it targets. It also ran no-context choice, rating, two-question, no/exit-1, -q, and --min-confidence runs against the live model, all with clean stdout. Three notes, none about behavior: (1) the TESTING.md heading said "live test"; fixed to "live tests" and the paragraph refilled. (2) The README intro (lines 8-9) says a decision model "reads a context"; that describes the model, not the flag, and the issue scoped README work to the new section, so it stays; a later pass over the intro may reword it. (3) No offline test pins exit 1 for a bare question answered no; the exit-code path is context-independent and the --context spam tests cover it, so none added.

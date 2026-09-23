@@ -69,14 +69,19 @@ struct DecideRunTests {
         ScriptedModel(answering: Self.answers(refund: .verdict(probability: 0.6)))
     }
 
-    /// A model that answers one yes/no question, `q1`, at that P(yes).
-    private static func spamModel(probability: Double) -> ScriptedModel {
-        ScriptedModel(
-            answering: Answers(
+    /// A model that answers one yes/no question, `q1`, at that P(yes), and
+    /// keeps the request it got.
+    private static func spamModel(
+        probability: Double,
+        recording box: RequestBox? = nil
+    ) -> ScriptedModel {
+        ScriptedModel { request in
+            box?.record(request)
+            return Answers(
                 records: ["q1": .verdict(probability: probability)],
                 quality: .calibrated
             )
-        )
+        }
     }
 
     /// The spam question from the README, with no question flags.
@@ -286,6 +291,45 @@ struct DecideRunTests {
             #expect(out.isEmpty, "P(yes) \(probability)")
             #expect(err.isEmpty, "P(yes) \(probability)")
         }
+    }
+
+    @Test("A question with no --context prints yes and exits 0")
+    func noContextYes() async throws {
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.97, recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+        let request = try #require(box.request)
+        #expect(request.state == nil)
+    }
+
+    @Test("-q with no --context prints nothing and exits 0")
+    func noContextQuiet() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?", "-q"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.97),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out.isEmpty)
+        #expect(err.isEmpty)
     }
 
     @Test("A yes/no answer below its bar exits 2 and prints nothing")

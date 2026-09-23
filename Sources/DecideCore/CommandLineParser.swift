@@ -17,9 +17,10 @@ public enum CommandLineParser {
     /// yes/no question; `--yes` and `--no` set what it prints.
     /// `--min-confidence` after a question sets the confidence its answer
     /// needs. `--quiet` or `-q` keeps the one yes/no question's answer off
-    /// stdout. `--version` anywhere returns `.version(alone:)`, alone or
-    /// not. Without it, `--help` or `-h` anywhere returns `.help`. Anything
-    /// the tool cannot run throws a `UsageError` that names the problem.
+    /// stdout. `--context` is optional; without it the questions run with no
+    /// state. `--version` anywhere returns `.version(alone:)`, alone or not.
+    /// Without it, `--help` or `-h` anywhere returns `.help`. Anything the
+    /// tool cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         if arguments.contains("--version") { return .version(alone: arguments.count == 1) }
@@ -79,7 +80,6 @@ public enum CommandLineParser {
             questions.append(QuestionBuilder(instructions: token))
         }
 
-        guard let context else { throw UsageError("no --context given") }
         guard !questions.isEmpty else { throw UsageError("no question given") }
 
         var finished: [Question] = []

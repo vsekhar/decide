@@ -1,17 +1,19 @@
-/// What one run of `decide` asks: one context and the questions about it.
+/// What one run of `decide` asks: the questions, and the context they are
+/// about, if any.
 ///
 /// The parser builds this from the command line. Nothing here touches a file
 /// or the network. `ContextSource.file` names a path; the run reads it.
 public struct Invocation: Sendable, Equatable {
-    /// Where the context comes from.
-    public var context: ContextSource
+    /// Where the context comes from. `nil` is a run with no context: the
+    /// questions carry their own facts.
+    public var context: ContextSource?
     /// The questions, in command-line order.
     public var questions: [Question]
     /// Print no answer, from `--quiet`. Only a run with one yes/no question
     /// may set it; the exit code carries the answer then.
     public var quiet: Bool
 
-    public init(context: ContextSource, questions: [Question], quiet: Bool = false) {
+    public init(context: ContextSource?, questions: [Question], quiet: Bool = false) {
         self.context = context
         self.questions = questions
         self.quiet = quiet

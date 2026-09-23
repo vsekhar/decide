@@ -328,11 +328,42 @@ struct CommandLineParserTests {
         }
     }
 
-    @Test("A line with no --context is an error")
-    func noContext() {
-        #expect(throws: UsageError("no --context given")) {
-            try CommandLineParser.parse(["Q", "--option", "a"])
-        }
+    @Test("A line with no --context runs the questions with no context")
+    func noContext() throws {
+        #expect(
+            try CommandLineParser.parse(["Is Atlanta the capital of Georgia?"])
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "Is Atlanta the capital of Georgia?",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no"))
+                            )
+                        ],
+                        quiet: false
+                    )
+                )
+        )
+    }
+
+    @Test("A bare question takes --quiet")
+    func noContextQuiet() throws {
+        #expect(
+            try CommandLineParser.parse(["Q?", "-q"])
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "Q?",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no"))
+                            )
+                        ],
+                        quiet: true
+                    )
+                )
+        )
     }
 
     @Test("A second --context is an error")

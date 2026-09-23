@@ -97,6 +97,15 @@ if answer=$(decide --context="$body" "Is this message spam?" --yes spam --no ham
 fi
 ```
 
+### No context
+
+A question that carries its own facts needs no `--context`:
+
+```sh
+$ decide "Is Atlanta the capital of Georgia?"
+yes
+```
+
 ### Composite context
 
 Compose multiple named context sources and refer to them in the question and option descriptions:

@@ -155,6 +155,22 @@ struct RunnerTests {
         #expect(request.state == .text(Self.context))
     }
 
+    @Test("A nil context sends a request with no state")
+    func noContextRequest() async throws {
+        let box = RequestBox()
+        let model = ScriptedModel { request in
+            box.record(request)
+            return Self.allAnswers
+        }
+        let session = DecisionSession(model: model)
+
+        _ = try await Runner.decide(Self.questions, about: nil, using: session)
+
+        #expect(model.callCount == 1)
+        let request = try #require(box.request)
+        #expect(request.state == nil)
+    }
+
     @Test("The outcomes come back in question order")
     func outcomeOrder() async throws {
         let model = ScriptedModel(answering: Self.allAnswers)

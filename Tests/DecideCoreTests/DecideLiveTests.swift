@@ -85,4 +85,23 @@ struct DecideLiveTests {
         #expect(["not_urgent", "somewhat_urgent", "urgent"].contains(lines[1]))
         #expect(["Yes", "No"].contains(lines[2]))
     }
+
+    @Test("decide answers a question with no context")
+    func answersWithoutContext() async {
+        guard let environment = liveEnvironment() else { return }
+
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Is Atlanta the capital of Georgia?"],
+            environment: environment,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+    }
 }

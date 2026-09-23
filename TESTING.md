@@ -28,13 +28,13 @@ Suite names match the source files: `CommandLineParser`, `Runner`,
 swift test --filter CommandLineParser
 ```
 
-## The live test against the real model
+## The live tests against the real model
 
-The `DecideLive` suite runs the README's team question through `Decide.run`
-against the model that `DECIDE_MODEL` names. It reads `DECIDE_MODEL` and a
-key from the environment, either `DECIDE_MODEL_API_KEY` or the provider's
-own `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`, and **fails** when either
-is absent. It never skips, because a green run that talked to nothing says
+The `DecideLive` suite runs README examples through `Decide.run` against
+the model that `DECIDE_MODEL` names. It reads `DECIDE_MODEL` and a key from
+the environment, either `DECIDE_MODEL_API_KEY` or the provider's own
+`TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`, and **fails** when either is
+absent. It never skips, because a green run that talked to nothing says
 nothing.
 
 Keep the live suite short, for time and not for money. Decision model
