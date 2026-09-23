@@ -14,34 +14,29 @@ public enum Decide {
         option or level, or yes or no. A question with no --option or --level is
         a yes/no question; --yes and --no set what it prints.
 
-          --context <text>       The text to judge. Optional: a question that carries
-                                 its own facts needs none.
-          --context @<path>      Read the text from a file.
-          "<question>"           A question. The flags after it belong to it.
-          --option <id>          An option the model can choose. The question is a choice.
-          --option <id>=<text>   An option with a description.
-          --level <id>           A level on a scale, low to high. The question is a rating.
-          --level <id>=<text>    A level with a description.
-          --yes <value>          What a yes/no question prints for yes. Default: yes.
-          --yes <value>=<text>   The value, and what counts as yes.
-          --no <value>           What a yes/no question prints for no. Default: no.
-          --no <value>=<text>    The value, and what counts as no.
-          --min-confidence <n>   The confidence an answer needs, from 0 to 1. Below it
-                                 the run is unsure and exits 2. On a yes/no question, n
-                                 means P(yes) at least (1 + n) / 2 for yes.
-          --quiet, -q            Print no answer. Only with one yes/no question.
-          --set-config           Write settings to the home config and exit.
-          --model <model>        With --set-config, the model to write, provider:model.
-          --api-key <key>        With --set-config, the key to write. Home config only.
-          --project              With --set-config, write ./.decide/config instead.
-          --help, -h             Print this text.
-          --version              Print the version and exit. Takes no other arguments.
+          --context <text>               Optional context for question(s).
+          --context @<path>              Context from file.
+          "<question>"                   A question. The flags after it belong to it.
+          --option <label>[=explanation] An option the model can choose, optional explanation.
+          --level <label>[=explanation]  A level on a scale, low to high, optional explanation.
+          --yes <label>[=explanation]    Label and optional explanation for "yes"
+          --no <label>[=explanation]     Label and optional explanation for "no"
+          --min-confidence <n>           The confidence an answer needs, from 0 to 1. Below it
+                                         the run is unsure and exits 2. On a yes/no question, n
+                                         means P(yes) at least (1 + n) / 2 for yes.
+          --quiet, -q                    Print no answer. Only with one yes/no question.
+          --set-config                   Write settings to the home config and exit.
+          --model <model>                With --set-config, the model to write, provider:model.
+          --api-key <key>                With --set-config, the key to write. Home config only.
+          --project                      With --set-config, write ./.decide/config instead.
+          --help, -h                     Print this text.
+          --version                      Print the version and exit. Takes no other arguments.
 
         Environment:
-          DECIDE_MODEL           provider:model, for example typesafe:jev-latest
-                                 or openrouter:typesafe/jev-1.13
-          DECIDE_MODEL_API_KEY   The API key. When unset, the provider reads its own
-                                 variable: TYPESAFE_API_KEY or OPENROUTER_API_KEY.
+          DECIDE_MODEL                   provider:model, for example typesafe:jev-latest
+                                         or openrouter:typesafe/jev-1.13
+          DECIDE_MODEL_API_KEY           The API key. When unset, the provider reads its own
+                                         variable: TYPESAFE_API_KEY or OPENROUTER_API_KEY.
 
           Config files: .decide/config in the working directory and its parents,
           then ~/.config/decide/config and ~/.decide/config. Lines of
