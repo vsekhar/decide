@@ -399,6 +399,128 @@ struct DecideRunTests {
         )
     }
 
+    @Test("The batch example with --json prints one keyed line")
+    func jsonBatch() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + Self.urgencyQuestion + Self.refundQuestion + ["--json"],
+            environment: [:],
+            model: Self.triageModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == """
+                {"q1":{"kind":"choice","answer":"returns","confidence":0.91,\
+                "probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},\
+                "q2":{"kind":"rating","answer":"somewhat_urgent","score":1.15,\
+                "confidence":0.78,"probabilities":{"not_urgent":0.15,\
+                "somewhat_urgent":0.55,"urgent":0.3}},\
+                "q3":{"kind":"verdict","answer":"Yes","verdict":true,"confidence":0.74,\
+                "probabilities":{"Yes":0.87,"No":0.13}}}
+
+                """
+        )
+        #expect(err.isEmpty)
+    }
+
+    @Test("A yes/no question with --json keeps its exit code")
+    func jsonVerdict() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--json"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.2),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 1)
+        #expect(
+            out == """
+                {"q1":{"kind":"verdict","answer":"no","verdict":false,"confidence":0.6,\
+                "probabilities":{"yes":0.2,"no":0.8}}}
+
+                """
+        )
+        #expect(err.isEmpty)
+    }
+
+    @Test("--json keys a named question by its name")
+    func jsonNamedQuestion() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion + ["--json"],
+            environment: [:],
+            model: Self.namedTeamModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == """
+                {"team":{"kind":"choice","answer":"returns","confidence":0.91,\
+                "probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}}}
+
+                """
+        )
+        #expect(err.isEmpty)
+    }
+
+    @Test("An unsure run with --json prints nothing")
+    func jsonUnsure() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + Self.urgencyQuestion + Self.refundQuestion(bar: "0.7") + ["--json"],
+            environment: [:],
+            model: Self.unsureRefundModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out.isEmpty)
+    }
+
+    @Test("--json with -q exits 10 with the usage text")
+    func jsonWithQuiet() async {
+        let model = Self.spamModel(probability: 0.8)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--json", "-q"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.hasPrefix("Error: --json does not go with --quiet"))
+        #expect(err.contains(Decide.usage))
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("The usage text lists --json")
+    func usageListsJSON() {
+        #expect(Decide.usage.contains("  --json                         Print one JSON object"))
+    }
+
     @Test("A named question runs under its name")
     func namedQuestion() async {
         let box = RequestBox()

@@ -15,6 +15,9 @@ public struct Invocation: Sendable, Equatable {
     /// Print each answer as `name=answer`, from `--show-names`. Never with
     /// `quiet`.
     public var showNames: Bool
+    /// Print the answers as one JSON object, from `--json`. Never with
+    /// `quiet` or `showNames`.
+    public var json: Bool
     /// The model for this run from `--model`, or nil to use the environment
     /// and the config files.
     public var model: String?
@@ -27,6 +30,7 @@ public struct Invocation: Sendable, Equatable {
         questions: [Question],
         quiet: Bool = false,
         showNames: Bool = false,
+        json: Bool = false,
         model: String? = nil,
         apiKey: String? = nil
     ) {
@@ -34,6 +38,7 @@ public struct Invocation: Sendable, Equatable {
         self.questions = questions
         self.quiet = quiet
         self.showNames = showNames
+        self.json = json
         self.model = model
         self.apiKey = apiKey
     }

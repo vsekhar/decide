@@ -179,22 +179,24 @@ $ decide --context ticket=@ticket.txt \
          --context refund_policy=@refund_policy.txt \
          --questions @triage.json \
          --json
-{"team":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"returns":0.91,"shipping":0.06,"billing":0.03}},
- "urgency":{"kind":"rating","answer":"somewhat_urgent","score":1.2,"confidence":0.78,"probabilities":{"not_urgent":0.15,"somewhat_urgent":0.55,"urgent":0.30}},
- "refund":{"kind":"verdict","answer":true,"probability":0.87}}
+{"team":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},
+ "urgency":{"kind":"rating","answer":"somewhat_urgent","score":1.2,"confidence":0.78,"probabilities":{"not_urgent":0.15,"somewhat_urgent":0.55,"urgent":0.3}},
+ "refund":{"kind":"verdict","answer":"Yes","verdict":true,"confidence":0.74,"probabilities":{"Yes":0.87,"No":0.13}}}
 ```
+
+The tool prints the object on one line. The example is wrapped for reading.
 
 ### Scripting
 
 ```sh
-# Get confidence and breakdown of probabilities as JSON (parse with jq)
+# Get confidence and breakdown of probabilities as JSON (one object keyed by question name; one line; parse with jq)
 $ decide --context @ticket.txt \
          "Which team handles this ticket?" \
          --option shipping \
          --option billing \
          --option returns \
          --json
-{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"returns":0.91,"shipping":0.06,"billing":0.03}}
+{"q1":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}}}
 
 # Print each answer with its question's name (from --name, or q1, q2, ...)
 $ decide --context @ticket.txt \

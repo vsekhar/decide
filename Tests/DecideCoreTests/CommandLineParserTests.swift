@@ -1149,6 +1149,71 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--json anywhere on the line sets json")
+    func jsonAnywhere() throws {
+        let expected = ParseResult.run(
+            Invocation(
+                context: .single(.text("c")),
+                questions: [
+                    Question(instructions: "Q1", kind: .choice([Option(id: "a")])),
+                    Question(instructions: "Q2", kind: .choice([Option(id: "b")])),
+                ],
+                quiet: false,
+                showNames: false,
+                json: true
+            )
+        )
+        let lines = [
+            ["--json", "--context", "c", "Q1", "--option", "a", "Q2", "--option", "b"],
+            ["--context", "c", "Q1", "--option", "a", "--json", "Q2", "--option", "b"],
+            ["--context", "c", "Q1", "--option", "a", "Q2", "--option", "b", "--json"],
+        ]
+        for line in lines {
+            #expect(try CommandLineParser.parse(line) == expected, "\(line)")
+        }
+    }
+
+    @Test("A second --json is an error")
+    func twoJSON() {
+        #expect(throws: UsageError("--json was given twice")) {
+            try CommandLineParser.parse(["Q", "--json", "--json"])
+        }
+    }
+
+    @Test("--json with --quiet is an error in either order")
+    func jsonWithQuiet() {
+        let lines = [
+            ["Q?", "--json", "-q"],
+            ["Q?", "-q", "--json"],
+            ["Q?", "--quiet", "--json"],
+        ]
+        for line in lines {
+            #expect(throws: UsageError("--json does not go with --quiet"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("--json with --show-names is an error in either order")
+    func jsonWithShowNames() {
+        let lines = [
+            ["Q?", "--json", "--show-names"],
+            ["Q?", "--show-names", "--json"],
+        ]
+        for line in lines {
+            #expect(throws: UsageError("--show-names does not go with --json"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("--json alone still needs a question")
+    func jsonNeedsAQuestion() {
+        #expect(throws: UsageError("no question given")) {
+            try CommandLineParser.parse(["--json"])
+        }
+    }
+
     @Test("--model sets the run's model in either value form")
     func modelFlag() throws {
         let expected = ParseResult.run(

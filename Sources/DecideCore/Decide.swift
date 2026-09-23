@@ -32,6 +32,9 @@ public enum Decide {
           --quiet, -q                    Print no answer. Only with one yes/no question.
           --show-names                   Print each answer as name=answer, the name from
                                          --name or q1, q2, and so on. Not with --quiet.
+          --json                         Print one JSON object keyed by question name, with
+                                         each answer's kind, confidence, and probabilities.
+                                         Not with --quiet or --show-names.
           --model <model>                The model for this run, provider:model. Wins over
                                          the environment and every config file.
           --api-key <key>                The API key for this run. Wins over the environment
@@ -149,7 +152,10 @@ public enum Decide {
             return ExitCode.code(for: error)
         }
 
-        if !invocation.quiet {
+        if invocation.json {
+            let line = JSONOutput.line(for: invocation.questions, outcomes: outcomes)
+            print(line, terminator: "", to: &stdout)
+        } else if !invocation.quiet {
             for outcome in outcomes {
                 let line = invocation.showNames
                     ? "\(outcome.questionID)=\(outcome.answer)"

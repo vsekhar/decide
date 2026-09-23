@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:35:01-04:00
-updated: 2026-09-23T04:28:24-04:00
+updated: 2026-09-23T04:29:25-04:00
 blocked-on:
   - g3q
 ---
@@ -113,3 +113,9 @@ _📝 Noted on 2026-09-23 04:28:24-04:00 @ git:729dd1b+local_
 Summary (2026-09-23): done. --name <identifier> after a question sets Question.name through setName(_:to:) on the builder; checkUniqueNames refuses a name on two questions; isName became the internal isIdentifier shared by context names; the builder's message helper is label(_:). The spec id is the name, so the model sees it and --show-names prints it. Usage and the README Usage example added.
 Verifier: all four acceptance criteria hold, no blockers; it ran the README example and a four-question mix of named and unnamed questions live: output stays in question order and an unnamed fourth question keeps q4. Acted on three coverage notes: showNamesNamedQuestion now asserts empty stderr; a `--name` last-token test; the `--name=` empty form pinned. Left: the usage test checks only the first --name line, as its siblings do.
 Final: warnings-as-errors build clean; `swift test` with .env sourced, 307 tests in 9 suites passed, live included.
+
+---
+
+_📝 Noted on 2026-09-23 04:29:25-04:00 @ git:451f719_
+
+Correction: the final run was 306 tests in 9 suites, not 307.

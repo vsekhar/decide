@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T02:00:34-04:00
-updated: 2026-09-23T04:01:10-04:00
+updated: 2026-09-23T05:04:17-04:00
 ---
 
 # --json: print the answers as one JSON object keyed by question name
@@ -97,3 +97,30 @@ Decisions:
 5. Decide.run: `if invocation.json { print(line, terminator: "") } else if !invocation.quiet { plain loop }`; the line carries its own newline. Every error path returns before it, unchanged.
 6. wip/byu lands before this issue, so one run test names a question with --name and expects the key to be that name; the rest use q1, q2, q3.
 7. The README's question-file --json example is the JSON file's own names (team, urgency, refund), which come from wip/rqr, not built yet; the README shows the spec, and this issue only corrects its field vocabulary and key order.
+
+---
+
+_📝 Noted on 2026-09-23 04:54:02-04:00 @ git:451f719+local_
+
+Implementation (2026-09-23): a worker implemented the design record (hand-written JSON text, no Foundation import) and the Approach's flag, run, usage, README, and test lists; no open question came up. Beyond the record:
+- JSONOutput's helpers: line, value, probabilities(ids:from:), object, number (Double.description), string (the escaper). A nil score prints `null`, which the runner never produces.
+- The worker's first usage-text edit ate two spaces from the --model line and broke that line's test; it restored the gap. The verifier is asked to confirm against HEAD.
+- TESTING.md's suite-list sentence was rewrapped after adding JSONOutput; words unchanged.
+- The scripted batch printed exactly the expected line on the first run: "score":1.15, "confidence":0.74, "No":0.13, "urgent":0.3 all exact.
+Checks: warnings-as-errors build clean; `swift test --skip DecideLive` 324 tests in 9 suites pass.
+
+---
+
+_📝 Noted on 2026-09-23 05:04:13-04:00 @ git:451f719+local_
+
+Summary (2026-09-23): done. --json prints one line, one object keyed by question id in question order, each value kind, answer, confidence, probabilities, plus score on a rating and verdict on a verdict, in that key order with probabilities in declared order. JSONOutput writes the text itself (JSONEncoder does not keep key order here); Outcome carries the rating's score; the flag conflicts with --quiet and --show-names; the README's two examples are byte-identical to the emitter's output; --help lists the flag.
+Verifier: all five acceptance criteria hold, no blockers; it parsed every pinned line with a strict JSON reader, round-tripped every control character, and ran live: exit codes match with and without --json, an unsure run leaves stdout empty, and probabilities sum to 1 for all three kinds. Acted on three notes: line(for:outcomes:) now has a precondition that the counts match instead of a silent zip; number(_:)'s doc records that the library keeps every number finite and that exponent forms are valid JSON; the escaping test parses its line back and the named-question run test asserts empty stderr.
+Open, a user decision: derived numbers print in full double precision, so a live run can show "no":0.030000000000000027 (from 1 - 0.97) or "confidence":0.6200000000000001. Valid and exact, and the design chose Double.description knowingly, but the README shows only clean cases. A display rounding (say 1e-12) would be a small follow-up if wanted.
+Also noted: a provider that returned unnormalized probabilities would show them unnormalized here; the library validates but does not rescale.
+Final: warnings-as-errors build clean; `swift test` with .env sourced, 329 tests in 10 suites passed, live included.
+
+---
+
+_📝 Noted on 2026-09-23 05:04:17-04:00 @ git:9757eb3_
+
+Correction: the final run was 328 tests in 10 suites, not 329.

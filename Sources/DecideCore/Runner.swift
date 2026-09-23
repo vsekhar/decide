@@ -13,17 +13,22 @@ public struct Outcome: Sendable, Equatable {
     /// The probability of every option or level, keyed by id, or of the yes
     /// and no values.
     public let probabilities: [String: Double]
+    /// The rating's expected level index from the model, nil for a choice or
+    /// a verdict.
+    public let score: Double?
 
     public init(
         questionID: String,
         answer: String,
         confidence: Double,
-        probabilities: [String: Double]
+        probabilities: [String: Double],
+        score: Double? = nil
     ) {
         self.questionID = questionID
         self.answer = answer
         self.confidence = confidence
         self.probabilities = probabilities
+        self.score = score
     }
 }
 
@@ -115,14 +120,15 @@ public enum Runner {
                     probabilities: probabilities
                 )
             case .rating(let levels):
-                guard case .rating(_, let probabilities, _) = record else {
+                guard case .rating(let score, let probabilities, _) = record else {
                     throw DecisionError.malformedResponse("The answer for \(id) is not a rating.")
                 }
                 return ratingOutcome(
                     questionID: id,
                     levels: levels,
                     probabilities: probabilities,
-                    confidence: record.confidence
+                    confidence: record.confidence,
+                    score: score
                 )
             case .verdict(let yes, let no):
                 guard case .verdict(let probability) = record else {
@@ -153,12 +159,14 @@ public enum Runner {
     /// The answer is the id of the most likely level, and a tie goes to the
     /// lower one. The outcome's probabilities are keyed by level id. The
     /// library has already put every index on the scale and every level in
-    /// the record, so the confidence it computed is exact.
+    /// the record, so the confidence it computed is exact. The score is the
+    /// model's expected level index, carried through for `--json`.
     private static func ratingOutcome(
         questionID: String,
         levels: [Option],
         probabilities: [Int: Double],
-        confidence: Double
+        confidence: Double,
+        score: Double
     ) -> Outcome {
         var best = 0
         var bestProbability = -Double.infinity
@@ -177,7 +185,8 @@ public enum Runner {
             questionID: questionID,
             answer: levels[best].id,
             confidence: confidence,
-            probabilities: byID
+            probabilities: byID,
+            score: score
         )
     }
 

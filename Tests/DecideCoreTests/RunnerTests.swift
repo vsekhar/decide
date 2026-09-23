@@ -260,6 +260,19 @@ struct RunnerTests {
         #expect(abs(outcomes[2].confidence - 0.74) < 1e-9)
     }
 
+    @Test("A rating carries the record's score, and the other kinds carry none")
+    func ratingScore() async throws {
+        let session = DecisionSession(model: ScriptedModel(answering: Self.allAnswers))
+
+        let outcomes = try await Runner.decide(
+            Self.questions, about: Self.context, using: session
+        )
+
+        #expect(outcomes[1].score == 1.2)
+        #expect(outcomes[0].score == nil)
+        #expect(outcomes[2].score == nil)
+    }
+
     @Test("A probability outside 0 to 1 is a malformed response")
     func probabilityOffTheScale() async {
         let session = DecisionSession(

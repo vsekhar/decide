@@ -45,18 +45,20 @@ public enum CommandLineParser {
     /// needs. `--name` after a question gives it a name, an identifier that
     /// is unique in the run. `--quiet` or `-q` keeps the one yes/no
     /// question's answer off stdout. `--show-names` prints each answer with
-    /// its question's name, and does not go with `--quiet`. `--context` is
-    /// optional; without it the questions run with no state. A `--context`
-    /// whose value starts with a name and `=` is a named context, and the
-    /// model sees every named context as one field of one object; a name that
-    /// is not an identifier is an error, not text. A line with more than one
-    /// `--context` must name every one. `--model` and `--api-key` set the
-    /// model and key for this run, over the environment and every config
-    /// file. `--version` anywhere returns `.version(alone:)`, alone or not.
-    /// Without it, `--help` or `-h` anywhere returns `.help`. `--set-config`
-    /// after those two takes the line for itself: `--model`, `--api-key`, and
-    /// `--project` join it, and any other token is an error. Anything the
-    /// tool cannot run throws a `UsageError` that names the problem.
+    /// its question's name, and does not go with `--quiet`. `--json` prints
+    /// the answers as one JSON object, and does not go with `--quiet` or
+    /// `--show-names`. `--context` is optional; without it the questions run
+    /// with no state. A `--context` whose value starts with a name and `=` is
+    /// a named context, and the model sees every named context as one field
+    /// of one object; a name that is not an identifier is an error, not text.
+    /// A line with more than one `--context` must name every one. `--model`
+    /// and `--api-key` set the model and key for this run, over the
+    /// environment and every config file. `--version` anywhere returns
+    /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
+    /// anywhere returns `.help`. `--set-config` after those two takes the
+    /// line for itself: `--model`, `--api-key`, and `--project` join it, and
+    /// any other token is an error. Anything the tool cannot run throws a
+    /// `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         if arguments.contains("--version") { return .version(alone: arguments.count == 1) }
@@ -67,6 +69,7 @@ public enum CommandLineParser {
         var questions: [QuestionBuilder] = []
         var quiet = false
         var showNames = false
+        var json = false
         var model: String?
         var apiKey: String?
         var index = 0
@@ -84,6 +87,12 @@ public enum CommandLineParser {
             if token == "--show-names" {
                 guard !showNames else { throw UsageError("--show-names was given twice") }
                 showNames = true
+                continue
+            }
+
+            if token == "--json" {
+                guard !json else { throw UsageError("--json was given twice") }
+                json = true
                 continue
             }
 
@@ -158,6 +167,10 @@ public enum CommandLineParser {
 
         if quiet && showNames { throw UsageError("--show-names does not go with --quiet") }
 
+        if json && quiet { throw UsageError("--json does not go with --quiet") }
+
+        if json && showNames { throw UsageError("--show-names does not go with --json") }
+
         if quiet {
             guard finished.count == 1, case .verdict = finished[0].kind else {
                 throw UsageError("--quiet needs exactly one yes/no question")
@@ -170,6 +183,7 @@ public enum CommandLineParser {
                 questions: finished,
                 quiet: quiet,
                 showNames: showNames,
+                json: json,
                 model: model,
                 apiKey: apiKey
             )
