@@ -43,14 +43,15 @@ public enum CommandLineParser {
     /// yes/no question; `--yes` and `--no` set what it prints.
     /// `--min-confidence` after a question sets the confidence its answer
     /// needs. `--quiet` or `-q` keeps the one yes/no question's answer off
-    /// stdout. `--context` is optional; without it the questions run with no
-    /// state. A `--context` whose value starts with a name and `=` is a named
-    /// context, and the model sees every named context as one field of one
-    /// object; a name that is not an identifier is an error, not text. A
-    /// line with more than one `--context` must name every one. `--model`
-    /// and `--api-key` set the model and key for this run, over the
-    /// environment and every config file. `--version` anywhere returns
-    /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
+    /// stdout. `--show-names` prints each answer with its question's name,
+    /// and does not go with `--quiet`. `--context` is optional; without it
+    /// the questions run with no state. A `--context` whose value starts with
+    /// a name and `=` is a named context, and the model sees every named
+    /// context as one field of one object; a name that is not an identifier
+    /// is an error, not text. A line with more than one `--context` must name
+    /// every one. `--model` and `--api-key` set the model and key for this
+    /// run, over the environment and every config file. `--version` anywhere
+    /// returns `.version(alone:)`, alone or not. Without it, `--help` or `-h`
     /// anywhere returns `.help`. `--set-config` after those two takes the
     /// line for itself: `--model`, `--api-key`, and `--project` join it, and
     /// any other token is an error. Anything the tool cannot run throws a
@@ -64,6 +65,7 @@ public enum CommandLineParser {
         var contexts: [ContextEntry] = []
         var questions: [QuestionBuilder] = []
         var quiet = false
+        var showNames = false
         var model: String?
         var apiKey: String?
         var index = 0
@@ -75,6 +77,12 @@ public enum CommandLineParser {
             if token == "--quiet" || token == "-q" {
                 guard !quiet else { throw UsageError("--quiet was given twice") }
                 quiet = true
+                continue
+            }
+
+            if token == "--show-names" {
+                guard !showNames else { throw UsageError("--show-names was given twice") }
+                showNames = true
                 continue
             }
 
@@ -140,6 +148,8 @@ public enum CommandLineParser {
 
         let context = try Self.context(from: contexts)
 
+        if quiet && showNames { throw UsageError("--show-names does not go with --quiet") }
+
         if quiet {
             guard finished.count == 1, case .verdict = finished[0].kind else {
                 throw UsageError("--quiet needs exactly one yes/no question")
@@ -148,7 +158,12 @@ public enum CommandLineParser {
 
         return .run(
             Invocation(
-                context: context, questions: finished, quiet: quiet, model: model, apiKey: apiKey
+                context: context,
+                questions: finished,
+                quiet: quiet,
+                showNames: showNames,
+                model: model,
+                apiKey: apiKey
             )
         )
     }

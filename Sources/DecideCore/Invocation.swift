@@ -12,6 +12,9 @@ public struct Invocation: Sendable, Equatable {
     /// Print no answer, from `--quiet`. Only a run with one yes/no question
     /// may set it; the exit code carries the answer then.
     public var quiet: Bool
+    /// Print each answer as `name=answer`, from `--show-names`. Never with
+    /// `quiet`.
+    public var showNames: Bool
     /// The model for this run from `--model`, or nil to use the environment
     /// and the config files.
     public var model: String?
@@ -23,12 +26,14 @@ public struct Invocation: Sendable, Equatable {
         context: Context?,
         questions: [Question],
         quiet: Bool = false,
+        showNames: Bool = false,
         model: String? = nil,
         apiKey: String? = nil
     ) {
         self.context = context
         self.questions = questions
         self.quiet = quiet
+        self.showNames = showNames
         self.model = model
         self.apiKey = apiKey
     }

@@ -293,6 +293,89 @@ struct DecideRunTests {
         }
     }
 
+    @Test("The batch example with --show-names prints name=answer per line")
+    func showNamesBatch() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + Self.urgencyQuestion + Self.refundQuestion + ["--show-names"],
+            environment: [:],
+            model: Self.triageModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "q1=returns\nq2=somewhat_urgent\nq3=Yes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("A yes/no question with --show-names keeps its exit code")
+    func showNamesVerdict() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--show-names"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.2),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 1)
+        #expect(out == "q1=no\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("An unsure run with --show-names prints nothing")
+    func showNamesUnsure() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + Self.urgencyQuestion + Self.refundQuestion(bar: "0.7") + ["--show-names"],
+            environment: [:],
+            model: Self.unsureRefundModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out.isEmpty)
+    }
+
+    @Test("--show-names with -q exits 10 with the usage text")
+    func showNamesWithQuiet() async {
+        let model = Self.spamModel(probability: 0.8)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--show-names", "-q"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.hasPrefix("Error: --show-names does not go with --quiet"))
+        #expect(err.contains(Decide.usage))
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("The usage text lists --show-names")
+    func usageListsShowNames() {
+        #expect(
+            Decide.usage.contains("  --show-names                   Print each answer as name=answer")
+        )
+    }
+
     @Test("A question with no --context prints yes and exits 0")
     func noContextYes() async throws {
         let box = RequestBox()

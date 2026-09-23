@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:42:50-04:00
-updated: 2026-09-23T02:59:29-04:00
+updated: 2026-09-23T03:24:35-04:00
 ---
 
 # --show-names: print each answer as name=answer
@@ -93,3 +93,28 @@ Design record (2026-09-23), the decisions the Approach left open. Implemented as
 4. No named-question run test yet: wip/g3q and wip/byu have not landed. Add it with them.
 5. The --json conflict check is 4qk's, since 4qk lands after 3tz (per the coordination note).
 6. No live test: the wire does not change.
+
+---
+
+_📝 Noted on 2026-09-23 03:18:31-04:00 @ git:27fbcf9+local_
+
+Assumption corrected (2026-09-23): the Context paragraph says an answer may hold `=` (`--yes "a=b"` prints `refund=a=b`). It cannot, from the command line: option(from:as:) splits every --option, --level, --yes, and --no value at its first `=` into id and description, and the id is what prints, so `--yes "a=b"` prints `q1=a`. The existing test "--option id=a=b keeps the rest of the value as the description" pins that. The planned run test for an answer with `=` is dropped as unreachable. The split-at-first-`=` rule for readers still holds, since a name never holds `=`; an answer with `=` can only come from a JSON question file's id, which is later work (wip/g3q).
+
+---
+
+_📝 Noted on 2026-09-23 03:20:12-04:00 @ git:27fbcf9+local_
+
+Implementation (2026-09-23): a worker implemented the Approach and the design record as written. It stopped once, on the `=`-in-answer test, which led to the assumption correction above; the test was dropped and nothing else changed. Beyond the record:
+- The Invocation(...) call at the end of parse is one argument per line, and the ternary in Decide.run is wrapped over three lines, both for width.
+- Test names are the worker's; the "anywhere" parser test loops over three lines with a comment per line, like quietNeedsOneVerdict.
+- The unsure run test asserts only exit 2 and empty stdout; the existing unsureBatch test already pins the stderr text.
+Checks: warnings-as-errors build clean; `swift test --skip DecideLive` 282 tests in 8 suites pass. No live test added; the wire is unchanged.
+
+---
+
+_📝 Noted on 2026-09-23 03:24:35-04:00 @ git:27fbcf9+local_
+
+Summary (2026-09-23): done. --show-names is a bare run-wide flag beside --quiet: Invocation.showNames, taken once, a conflict error with --quiet checked before the one-question rule. Decide.run prints `questionID=answer` per line when set and is otherwise unchanged, so exit codes and the empty stdout on exit 2 and above hold. Usage lines and the README Scripting example added.
+Verifier: all four acceptance criteria hold, no blockers, checked on the binary too (exit 0, 1, 2, and two exit-10 paths, stdout empty on every exit of 2 or more; a live 3-question batch prints q1, q2, q3 in command-line order). Notes, no action: `--show-names=x` is `unknown flag` by the generic check with no test, like `--quiet=x`; a line with both a context error and the flag pair reports the context error first, unspecified either way; the unsure run test leaves the stderr text to unsureBatch. Correction to the implementation note: the "anywhere" parser test passes "\(line)" as the #expect message, not a comment per line.
+Open for later: a run test that a named question prints `team=returns`, once wip/g3q and wip/byu land; the `--show-names does not go with --json` check goes in wip/4qk.
+Final: warnings-as-errors build clean; `swift test --skip DecideLive` 282 tests in 8 suites; the live suite 4 tests, all passed.

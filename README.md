@@ -188,6 +188,15 @@ $ decide --context @ticket.txt \
          --json
 {"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"returns":0.91,"shipping":0.06,"billing":0.03}}
 
+# Print each answer with its question's name (from --name, or q1, q2, ...)
+$ decide --context @ticket.txt \
+         "Which team handles this ticket?" --name team \
+             --option shipping --option billing --option returns \
+         "Should we issue a refund?" \
+         --show-names
+team=returns
+q2=yes
+
 # Branch in a script via exit codes (-q suppresses printed output)
 if decide --context="$body" "Is this message spam?" -q; then
   mv "$file" spam/

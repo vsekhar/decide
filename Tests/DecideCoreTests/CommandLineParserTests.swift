@@ -931,6 +931,66 @@ struct CommandLineParserTests {
         #expect(result == .run(invocation(Option(id: "-q"))))
     }
 
+    @Test("--show-names anywhere on the line sets showNames")
+    func showNamesAnywhere() throws {
+        let expected = ParseResult.run(
+            Invocation(
+                context: .single(.text("c")),
+                questions: [
+                    Question(instructions: "Q1", kind: .choice([Option(id: "a")])),
+                    Question(instructions: "Q2", kind: .choice([Option(id: "b")])),
+                ],
+                quiet: false,
+                showNames: true
+            )
+        )
+        let lines = [
+            ["--show-names", "--context", "c", "Q1", "--option", "a", "Q2", "--option", "b"],
+            ["--context", "c", "Q1", "--option", "a", "--show-names", "Q2", "--option", "b"],
+            ["--context", "c", "Q1", "--option", "a", "Q2", "--option", "b", "--show-names"],
+        ]
+        for line in lines {
+            #expect(try CommandLineParser.parse(line) == expected, "\(line)")
+        }
+    }
+
+    @Test("A second --show-names is an error")
+    func twoShowNames() {
+        #expect(throws: UsageError("--show-names was given twice")) {
+            try CommandLineParser.parse(["Q", "--show-names", "--show-names"])
+        }
+    }
+
+    @Test("--show-names with --quiet is an error in either order")
+    func showNamesWithQuiet() {
+        let lines = [
+            ["Q?", "--show-names", "-q"],
+            ["Q?", "-q", "--show-names"],
+            ["Q?", "--quiet", "--show-names"],
+        ]
+        for line in lines {
+            #expect(throws: UsageError("--show-names does not go with --quiet"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("The --show-names conflict is reported before the one-question rule")
+    func showNamesConflictComesFirst() {
+        #expect(throws: UsageError("--show-names does not go with --quiet")) {
+            try CommandLineParser.parse([
+                "Q1", "--option", "a", "Q2", "--option", "b", "-q", "--show-names",
+            ])
+        }
+    }
+
+    @Test("--show-names alone still needs a question")
+    func showNamesNeedsAQuestion() {
+        #expect(throws: UsageError("no question given")) {
+            try CommandLineParser.parse(["--show-names"])
+        }
+    }
+
     @Test("--model sets the run's model in either value form")
     func modelFlag() throws {
         let expected = ParseResult.run(

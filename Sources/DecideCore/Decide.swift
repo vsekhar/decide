@@ -28,6 +28,8 @@ public enum Decide {
                                          the run is unsure and exits 2. On a yes/no question, n
                                          means P(yes) at least (1 + n) / 2 for yes.
           --quiet, -q                    Print no answer. Only with one yes/no question.
+          --show-names                   Print each answer as name=answer, the name from
+                                         --name or q1, q2, and so on. Not with --quiet.
           --model <model>                The model for this run, provider:model. Wins over
                                          the environment and every config file.
           --api-key <key>                The API key for this run. Wins over the environment
@@ -147,7 +149,10 @@ public enum Decide {
 
         if !invocation.quiet {
             for outcome in outcomes {
-                print(outcome.answer, to: &stdout)
+                let line = invocation.showNames
+                    ? "\(outcome.questionID)=\(outcome.answer)"
+                    : outcome.answer
+                print(line, to: &stdout)
             }
         }
         return exitCode(for: outcomes, questions: invocation.questions)
