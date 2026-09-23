@@ -31,11 +31,17 @@ swift test --filter CommandLineParser
 ## The live test against the real model
 
 The `DecideLive` suite runs the README's team question through `Decide.run`
-against the model that `DECIDE_MODEL` names. It sends one request. It reads
-`DECIDE_MODEL` and a key from the environment, either `DECIDE_MODEL_API_KEY`
-or the provider's own `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`, and
-**fails** when either is absent. It never skips, because a green run that
-talked to nothing says nothing.
+against the model that `DECIDE_MODEL` names. It reads `DECIDE_MODEL` and a
+key from the environment, either `DECIDE_MODEL_API_KEY` or the provider's
+own `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`, and **fails** when either
+is absent. It never skips, because a green run that talked to nothing says
+nothing.
+
+Keep the live suite short, for time and not for money. Decision model
+requests are cheap, thousands per penny, so cost sets no limit. Each
+request adds a network round trip to every CI job and every local run, so
+a live test earns its place only when a scripted model cannot prove the
+same thing.
 
 Put the variables in `.env`, which git ignores, and source it for one
 command:
@@ -80,8 +86,7 @@ swift test -Xswiftc -warnings-as-errors --enable-code-coverage
 
 CI sets `DECIDE_MODEL` to `typesafe:jev-latest` in the workflow and passes
 `TYPESAFE_API_KEY` from a secret. It sets no `DECIDE_MODEL_API_KEY`, so the
-tool reads the provider's own variable. Each push spends one Jev request per
-job, so two.
+tool reads the provider's own variable. Each job runs the live suite once.
 
 The build log may show pairs of `Internal Error: DecodingError` and `LLVM
 Profile Error` lines from the library's macro plugin. They are harmless;

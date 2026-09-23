@@ -3,8 +3,8 @@ import Testing
 
 @testable import DecideCore
 
-/// A test that calls the real service. It costs money, so the suite sends one
-/// request and no more.
+/// Tests that call the real service. Requests are cheap; round trips are
+/// not, so each test here proves something a scripted model cannot.
 ///
 /// Run it with the model and the key in the environment:
 ///
