@@ -1,0 +1,77 @@
+---
+priority: p2
+type: feature
+created: 2026-09-23T01:42:50-04:00
+updated: 2026-09-23T01:42:50-04:00
+---
+
+# --show-names: print each answer as name=answer
+
+# --show-names: print each answer as name=answer
+
+## Objective
+
+`decide --context @ticket.txt "Which team?" --option shipping --option billing --option returns "Should we issue a refund?" --show-names` prints `q1=returns` and `q2=yes`, one line per question, the question's name before an `=` and the answer after it. A named question (wip/byu, or a JSON file's `name`) prints its name; an unnamed one prints its position label, `q1`, `q2`, and so on. Everything else about a plain run stays the same: the order, the exit codes, and the empty stdout on exit 2 and above. `--show-names` with `--quiet` is a usage error, and with `--json` once that exists.
+
+## Context
+
+Requested by the user on 2026-09-23. Decided the same day: the flag is `--show-names`, the separator is `=` so a shell can split each line at its first `=`, and the flag is only for plain output, so combining it with `-q` or `--json` is an error rather than an override. A name is an identifier and never holds `=`; an answer may (`--yes "a=b"` prints `refund=a=b`), and a split at the first `=` still gives the name.
+
+Today `Decide.run` prints `outcome.answer` per line, and `Outcome.questionID` already holds the spec id, `q<N>` by position (`Runner.identifier(at:)`). wip/g3q makes that id the question's name when one is set, and wip/byu sets it from the command line; this issue needs neither, and prints whatever id the outcome carries. `--quiet` is the model for a run-wide bare flag: `Invocation.quiet`, taken once, checked after the questions are built.
+
+## Location
+
+- `Sources/DecideCore/Invocation.swift`: `showNames`.
+- `Sources/DecideCore/CommandLineParser.swift`: the flag and the `--quiet` check.
+- `Sources/DecideCore/Decide.swift`: the print loop; the usage text.
+- `README.md`: one example under Scripting.
+- `Tests/DecideCoreTests/CommandLineParserTests.swift`, `DecideRunTests.swift`.
+
+## Approach
+
+**Invocation.** `public var showNames: Bool`, doc comment "Print each answer as `name=answer`, from `--show-names`. Never with `quiet`." Initializer: `showNames: Bool = false` after `quiet` (before the `model` and `apiKey` parameters wip/79i adds, if that has landed; order the defaults so every existing call compiles).
+
+**Parser.** `--show-names` anywhere on the line, a bare flag handled beside `--quiet`: a second one throws `--show-names was given twice`. After the questions are built, `quiet && showNames` throws `--show-names does not go with --quiet`; the `--quiet` one-yes/no-question check stays as it is. `--set-config` lines are unchanged (the pre-scan throws "runs alone"). The `parse` doc comment gains: "`--show-names` prints each answer with its question's name, and does not go with `--quiet`."
+
+**Run.** In the print loop, `showNames ? "\(outcome.questionID)=\(outcome.answer)" : outcome.answer`. Nothing else: the exit-code rule for one yes/no question still reads the answer, and an unsure or failed run still prints nothing.
+
+**`--json`.** When the `--json` output flag is filed, its parser check adds `--show-names does not go with --json`. Record this in that issue; nothing here.
+
+**Usage text**, after the `--quiet, -q` entry, in the current column:
+
+```
+  --show-names                   Print each answer as name=answer, the name from
+                                 --name or q1, q2, and so on. Not with --quiet.
+```
+
+**README**, under Scripting after the `--json` example:
+
+```sh
+# Print each answer with its question's name (from --name, or q1, q2, ...)
+$ decide --context @ticket.txt \
+         "Which team handles this ticket?" --name team \
+             --option shipping --option billing --option returns \
+         "Should we issue a refund?" \
+         --show-names
+team=returns
+q2=yes
+```
+
+The example uses `--name` from wip/byu; the README shows the spec, and the run test below uses the position labels, which exist today.
+
+## Tests
+
+- Parser: `--show-names` before the context, between questions, and last, each giving `showNames == true` and the same questions; twice; `--show-names -q` and `-q --show-names` and `--quiet --show-names` each throwing the does-not-go message; `--show-names` alone with no question still throws `no question given`.
+- Run level with the scripted triage model: the batch example with `--show-names` prints `q1=returns\nq2=somewhat_urgent\nq3=Yes\n`, exit 0; a bare yes/no question with `--show-names` prints `q1=no\n` and exits 1 (the exit-code rule survives); a run whose refund is below its bar prints nothing and exits 2; `--show-names -q` exits 10 with the usage text and nothing on stdout; once wip/g3q and wip/byu have landed, a named question prints `team=returns` (add the test then, or now if they are in).
+- No live test: the wire does not change (TESTING.md).
+
+## Related Issues
+
+wip/byu (`--name`) and wip/g3q (names as ids) give the labels their real values; neither blocks this. The unfiled `--json` output issue adds the `--json` conflict check. wip/79i and wip/ndr also touch `Invocation.init`; land one at a time.
+
+## Acceptance Criteria
+
+- [ ] `--show-names` prints `name=answer` per line, with `q<N>` for unnamed questions, in question order; exit codes are unchanged.
+- [ ] `--show-names` twice, or with `-q` or `--quiet`, exits 10 with the message and nothing on stdout.
+- [ ] `--help` and the README show the flag.
+- [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
