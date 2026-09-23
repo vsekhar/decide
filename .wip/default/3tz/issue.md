@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:42:50-04:00
-updated: 2026-09-23T01:42:50-04:00
+updated: 2026-09-23T02:00:34-04:00
 ---
 
 # --show-names: print each answer as name=answer
@@ -75,3 +75,9 @@ wip/byu (`--name`) and wip/g3q (names as ids) give the labels their real values;
 - [ ] `--show-names` twice, or with `-q` or `--quiet`, exits 10 with the message and nothing on stdout.
 - [ ] `--help` and the README show the flag.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 02:00:34-04:00 @ git:55cbb66+local_
+
+Coordination 2026-09-23: --json is filed as 4qk. The check "--show-names does not go with --json" goes in whichever of 3tz and 4qk lands second, since the first cannot name a flag that does not exist yet.
