@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:35:01-04:00
-updated: 2026-09-23T03:59:52-04:00
+updated: 2026-09-23T04:28:24-04:00
 blocked-on:
   - g3q
 ---
@@ -84,3 +84,32 @@ Design record (2026-09-23), the decisions the Approach left open. Implemented as
 5. wip/g3q landed first and made the spec id `name ?? "q<N>"`, so --name flows to the request with no Runner change.
 6. wip/qc4 (text question files) has not landed: its allowed-flag list gains --name when it does; noted here for qc4.
 7. The README example goes after the batch example's output (`yes`) and before "# Compose context from multiple sources", inside the same code block, blank line each side.
+
+---
+
+_📝 Noted on 2026-09-23 04:12:44-04:00 @ git:729dd1b+local_
+
+Design record, addendum (2026-09-23), from wip/g3q's verification:
+8. QuestionBuilder already has a method name(_ number:) that renders `question N ("...")` for messages. It is renamed label(_:) so the builder can hold a stored `name: String?`; every caller in the file follows.
+9. A name that equals another question's positional id (question 1 named "q2" beside an unnamed question 2) is not a parser error: the library's preflight refuses two specs with one id, and decide reports it as exit 10 with `Error: invalid question q2: Two questions share the id.` A run test pins that, so the behaviour is deliberate.
+10. The unsure message keeps `question N ("instructions")` by position, as the Approach says.
+11. --show-names already prints outcome.questionID, so a run test here pins `team=returns` for a named question; wip/3tz left that test to this issue.
+
+---
+
+_📝 Noted on 2026-09-23 04:19:56-04:00 @ git:729dd1b+local_
+
+Implementation (2026-09-23): a worker implemented the Approach and both design-record notes as written; no open question came up. Beyond the record:
+- The run-wide check is named checkUniqueNames (the record said uniqueNames) and is called right after `finished` is built, before the context check and the --show-names/--quiet checks; the record's item 3 said "before the --show-names/--quiet checks", which still holds.
+- DecideRunTests gained namedTeamQuestion (the team question with --name team) and namedTeamModel(recording:), a scripted model keyed by "team", mirroring triageModel(recording:).
+- Both exact-message run tests matched on the first run: `Error: the model's response is malformed: The response holds no answer for team.` (exit 11) and `Error: invalid question q2: Two questions share the id.` (exit 10).
+Checks: warnings-as-errors build clean; `swift test --skip DecideLive` 301 tests in 8 suites pass.
+Noted for wip/qc4: its allowed-flag list for text question files gains --name.
+
+---
+
+_📝 Noted on 2026-09-23 04:28:24-04:00 @ git:729dd1b+local_
+
+Summary (2026-09-23): done. --name <identifier> after a question sets Question.name through setName(_:to:) on the builder; checkUniqueNames refuses a name on two questions; isName became the internal isIdentifier shared by context names; the builder's message helper is label(_:). The spec id is the name, so the model sees it and --show-names prints it. Usage and the README Usage example added.
+Verifier: all four acceptance criteria hold, no blockers; it ran the README example and a four-question mix of named and unnamed questions live: output stays in question order and an unnamed fourth question keeps q4. Acted on three coverage notes: showNamesNamedQuestion now asserts empty stderr; a `--name` last-token test; the `--name=` empty form pinned. Left: the usage test checks only the first --name line, as its siblings do.
+Final: warnings-as-errors build clean; `swift test` with .env sourced, 307 tests in 9 suites passed, live included.

@@ -68,6 +68,14 @@ returns
 somewhat_urgent
 yes
 
+# Name questions; the name is the id each runs under
+$ decide --context @ticket.txt \
+     "Which team handles this ticket?" --name team \
+         --option shipping --option billing --option returns \
+     "Should we issue a refund?" --name refund
+returns
+yes
+
 # Compose context from multiple sources, refer by name in questions and options
 $ decide --context ticket=@ticket.txt \
          --context refund_policy=@refund_policy.txt \

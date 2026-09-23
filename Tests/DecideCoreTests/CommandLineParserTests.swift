@@ -880,6 +880,164 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--name sets the question's name in either value form")
+    func nameForms() throws {
+        for line in [
+            ["Q", "--name", "team", "--option", "a"],
+            ["Q", "--option", "a", "--name=team"],
+        ] {
+            let result = try CommandLineParser.parse(line)
+            #expect(
+                result
+                    == .run(
+                        Invocation(
+                            context: nil,
+                            questions: [
+                                Question(
+                                    instructions: "Q",
+                                    kind: .choice([Option(id: "a")]),
+                                    name: "team"
+                                )
+                            ]
+                        )
+                    ),
+                "\(line)"
+            )
+        }
+    }
+
+    @Test("--name before any question is an error")
+    func nameBeforeQuestion() {
+        #expect(throws: UsageError("--name before any question")) {
+            try CommandLineParser.parse(["--name", "team", "Q"])
+        }
+    }
+
+    @Test("A second --name on one question is an error")
+    func repeatedName() {
+        let error = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["Q", "--name", "a", "--name", "b"])
+        }
+        #expect(error?.message == "question 1 (\"Q\") repeats --name")
+    }
+
+    @Test("A --name that is not an identifier is an error")
+    func invalidName() {
+        for value in ["1st", "a-b", "a b", ""] {
+            let error = #expect(throws: UsageError.self) {
+                try CommandLineParser.parse(["Q", "--name", value])
+            }
+            #expect(
+                error?.message
+                    == "question 1 (\"Q\") has an invalid name \"\(value)\": "
+                        + "a letter or _ then letters, digits, or _",
+                "\(value)"
+            )
+        }
+        // The --flag=value form with nothing after the = is the same empty name.
+        let equalsForm = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["Q", "--name="])
+        }
+        #expect(
+            equalsForm?.message
+                == "question 1 (\"Q\") has an invalid name \"\": a letter or _ then letters, digits, or _"
+        )
+    }
+
+    @Test("--name as the last token needs a value")
+    func nameNeedsAValue() {
+        #expect(throws: UsageError("--name needs a value")) {
+            try CommandLineParser.parse(["Q", "--name"])
+        }
+    }
+
+    @Test("Two questions with one name are an error, and different names parse")
+    func namesAreUniqueInTheRun() throws {
+        let error = #expect(throws: UsageError.self) {
+            try CommandLineParser.parse(["Q1", "--name", "team", "Q2", "--name", "team"])
+        }
+        #expect(error?.message == "question name \"team\" is used twice")
+
+        let result = try CommandLineParser.parse([
+            "Q1", "--name", "team", "Q2", "--name", "refund",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "Q1",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no")),
+                                name: "team"
+                            ),
+                            Question(
+                                instructions: "Q2",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no")),
+                                name: "refund"
+                            ),
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("--name goes on a choice, a rating, and a yes/no question")
+    func nameOnEveryKind() throws {
+        let result = try CommandLineParser.parse([
+            "Q1", "--name", "a", "--option", "x",
+            "Q2", "--level", "l", "--level", "m", "--name", "b",
+            "Q3", "--yes", "y", "--name", "c",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "Q1",
+                                kind: .choice([Option(id: "x")]),
+                                name: "a"
+                            ),
+                            Question(
+                                instructions: "Q2",
+                                kind: .rating([Option(id: "l"), Option(id: "m")]),
+                                name: "b"
+                            ),
+                            Question(
+                                instructions: "Q3",
+                                kind: .verdict(yes: Option(id: "y"), no: Option(id: "no")),
+                                name: "c"
+                            ),
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("-q with one named yes/no question is allowed")
+    func quietWithANamedQuestion() throws {
+        let result = try CommandLineParser.parse(["Q?", "--name", "spam", "-q"])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "Q?",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no")),
+                                name: "spam"
+                            )
+                        ],
+                        quiet: true
+                    )
+                )
+        )
+    }
+
     @Test("--quiet and -q each drop the printed answer")
     func quietForms() throws {
         for token in ["--quiet", "-q"] {

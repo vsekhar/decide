@@ -13,6 +13,11 @@ struct DecideRunTests {
         "Which team handles this ticket?",
         "--option", "shipping", "--option", "billing", "--option", "returns",
     ]
+    /// The team question with the name `team`.
+    private static let namedTeamQuestion = [
+        "Which team handles this ticket?", "--name", "team",
+        "--option", "shipping", "--option", "billing", "--option", "returns",
+    ]
     /// The urgency question from the README, with its three levels.
     private static let urgencyQuestion = [
         "How urgent is this ticket?",
@@ -79,6 +84,24 @@ struct DecideRunTests {
             box?.record(request)
             return Answers(
                 records: ["q1": .verdict(probability: probability)],
+                quality: .calibrated
+            )
+        }
+    }
+
+    /// A model that answers the named team question under `team`, as a
+    /// provider would, and keeps the request it got.
+    private static func namedTeamModel(recording box: RequestBox? = nil) -> ScriptedModel {
+        ScriptedModel { request in
+            box?.record(request)
+            return Answers(
+                records: [
+                    "team": .choice(
+                        reported: "returns",
+                        probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03],
+                        confidence: 0.91
+                    )
+                ],
                 quality: .calibrated
             )
         }
@@ -374,6 +397,109 @@ struct DecideRunTests {
         #expect(
             Decide.usage.contains("  --show-names                   Print each answer as name=answer")
         )
+    }
+
+    @Test("A named question runs under its name")
+    func namedQuestion() async {
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion,
+            environment: [:],
+            model: Self.namedTeamModel(recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\n")
+        #expect(err.isEmpty)
+        #expect(box.request?.questionnaire.specs.map(\.id) == ["team"])
+    }
+
+    @Test("A model that answers under q1 for a named question is a malformed response")
+    func namedQuestionAnsweredByPosition() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion,
+            environment: [:],
+            model: Self.triageModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        let message = "Error: the model's response is malformed: "
+            + "The response holds no answer for team.\n"
+        #expect(code == 11)
+        #expect(out.isEmpty)
+        #expect(err == message)
+    }
+
+    @Test("Two questions with one name exit 10 with the usage text")
+    func namesUsedTwice() async {
+        let model = Self.spamModel(probability: 0.8)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Q1", "--name", "team", "Q2", "--name", "team"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.hasPrefix("Error: question name \"team\" is used twice"))
+        #expect(err.contains(Decide.usage))
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A name that equals another question's position id is refused by the library")
+    func nameOfAnotherQuestionsPosition() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["Q1", "--name", "q2", "--option", "a", "Q2", "--option", "b"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(out.isEmpty)
+        #expect(err == "Error: invalid question q2: Two questions share the id.\n")
+    }
+
+    @Test("--show-names prints a named question by its name")
+    func showNamesNamedQuestion() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
+                + ["--show-names"],
+            environment: [:],
+            model: Self.namedTeamModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "team=returns\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("The usage text lists --name")
+    func usageListsName() {
+        #expect(Decide.usage.contains("  --name <name>                  The question's name"))
     }
 
     @Test("A question with no --context prints yes and exits 0")

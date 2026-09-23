@@ -42,20 +42,21 @@ public enum CommandLineParser {
     /// joins that question and sets its kind. A question with neither is a
     /// yes/no question; `--yes` and `--no` set what it prints.
     /// `--min-confidence` after a question sets the confidence its answer
-    /// needs. `--quiet` or `-q` keeps the one yes/no question's answer off
-    /// stdout. `--show-names` prints each answer with its question's name,
-    /// and does not go with `--quiet`. `--context` is optional; without it
-    /// the questions run with no state. A `--context` whose value starts with
-    /// a name and `=` is a named context, and the model sees every named
-    /// context as one field of one object; a name that is not an identifier
-    /// is an error, not text. A line with more than one `--context` must name
-    /// every one. `--model` and `--api-key` set the model and key for this
-    /// run, over the environment and every config file. `--version` anywhere
-    /// returns `.version(alone:)`, alone or not. Without it, `--help` or `-h`
-    /// anywhere returns `.help`. `--set-config` after those two takes the
-    /// line for itself: `--model`, `--api-key`, and `--project` join it, and
-    /// any other token is an error. Anything the tool cannot run throws a
-    /// `UsageError` that names the problem.
+    /// needs. `--name` after a question gives it a name, an identifier that
+    /// is unique in the run. `--quiet` or `-q` keeps the one yes/no
+    /// question's answer off stdout. `--show-names` prints each answer with
+    /// its question's name, and does not go with `--quiet`. `--context` is
+    /// optional; without it the questions run with no state. A `--context`
+    /// whose value starts with a name and `=` is a named context, and the
+    /// model sees every named context as one field of one object; a name that
+    /// is not an identifier is an error, not text. A line with more than one
+    /// `--context` must name every one. `--model` and `--api-key` set the
+    /// model and key for this run, over the environment and every config
+    /// file. `--version` anywhere returns `.version(alone:)`, alone or not.
+    /// Without it, `--help` or `-h` anywhere returns `.help`. `--set-config`
+    /// after those two takes the line for itself: `--model`, `--api-key`, and
+    /// `--project` join it, and any other token is an error. Anything the
+    /// tool cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         if arguments.contains("--version") { return .version(alone: arguments.count == 1) }
@@ -130,6 +131,11 @@ public enum CommandLineParser {
                 continue
             }
 
+            if let value = try flagValue(of: "--name", token: token, arguments: arguments, index: &index) {
+                try setName(value, to: &questions)
+                continue
+            }
+
             if token == "--project" { throw UsageError("--project needs --set-config") }
 
             if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
@@ -145,6 +151,8 @@ public enum CommandLineParser {
             let question = try builder.question(number: offset + 1)
             finished.append(question)
         }
+
+        try checkUniqueNames(finished)
 
         let context = try Self.context(from: contexts)
 
@@ -240,7 +248,8 @@ public enum CommandLineParser {
     /// under it, and stays `nil` until one arrives. `yes` and `no` hold the
     /// two sides of a yes/no question in any order, so a repeat of either flag
     /// is its own error. `minimumConfidence` is the bar `--min-confidence`
-    /// sets, on a question of any kind.
+    /// sets, on a question of any kind. `name` is the identifier `--name`
+    /// gives it, or nil.
     private struct QuestionBuilder {
         let instructions: String
         var flag: KindFlag?
@@ -248,9 +257,10 @@ public enum CommandLineParser {
         var yes: Option?
         var no: Option?
         var minimumConfidence: Double?
+        var name: String?
 
         /// How a message names this question: its number and its text.
-        func name(_ number: Int) -> String {
+        func label(_ number: Int) -> String {
             "question \(number) (\"\(instructions)\")"
         }
 
@@ -261,7 +271,7 @@ public enum CommandLineParser {
             var seen: Set<String> = []
             for value in values {
                 guard seen.insert(value.id).inserted else {
-                    throw UsageError("\(name(number)) repeats the \(flag.noun) \"\(value.id)\"")
+                    throw UsageError("\(label(number)) repeats the \(flag.noun) \"\(value.id)\"")
                 }
             }
             switch flag {
@@ -269,16 +279,18 @@ public enum CommandLineParser {
                 return Question(
                     instructions: instructions,
                     kind: .choice(values),
-                    minimumConfidence: minimumConfidence
+                    minimumConfidence: minimumConfidence,
+                    name: name
                 )
             case .level:
                 guard values.count >= 2 else {
-                    throw UsageError("\(name(number)) needs at least two --level")
+                    throw UsageError("\(label(number)) needs at least two --level")
                 }
                 return Question(
                     instructions: instructions,
                     kind: .rating(values),
-                    minimumConfidence: minimumConfidence
+                    minimumConfidence: minimumConfidence,
+                    name: name
                 )
             case .yes, .no:
                 return try verdict(number: number)
@@ -292,12 +304,13 @@ public enum CommandLineParser {
             let yesSide = yes ?? Option(id: "yes")
             let noSide = no ?? Option(id: "no")
             guard yesSide.id != noSide.id else {
-                throw UsageError("\(name(number)) uses the same value for --yes and --no")
+                throw UsageError("\(label(number)) uses the same value for --yes and --no")
             }
             return Question(
                 instructions: instructions,
                 kind: .verdict(yes: yesSide, no: noSide),
-                minimumConfidence: minimumConfidence
+                minimumConfidence: minimumConfidence,
+                name: name
             )
         }
     }
@@ -364,7 +377,7 @@ public enum CommandLineParser {
         }
         if let existing = questions[last].flag, existing.group != flag.group {
             throw UsageError(
-                "\(questions[last].name(last + 1)) mixes \(existing.rawValue) and \(flag.rawValue)"
+                "\(questions[last].label(last + 1)) mixes \(existing.rawValue) and \(flag.rawValue)"
             )
         }
         let parsed = try option(from: value, as: flag)
@@ -373,12 +386,12 @@ public enum CommandLineParser {
             questions[last].values.append(parsed)
         case .yes:
             guard questions[last].yes == nil else {
-                throw UsageError("\(questions[last].name(last + 1)) repeats --yes")
+                throw UsageError("\(questions[last].label(last + 1)) repeats --yes")
             }
             questions[last].yes = parsed
         case .no:
             guard questions[last].no == nil else {
-                throw UsageError("\(questions[last].name(last + 1)) repeats --no")
+                throw UsageError("\(questions[last].label(last + 1)) repeats --no")
             }
             questions[last].no = parsed
         }
@@ -396,12 +409,46 @@ public enum CommandLineParser {
             throw UsageError("--min-confidence before any question")
         }
         guard questions[last].minimumConfidence == nil else {
-            throw UsageError("\(questions[last].name(last + 1)) repeats --min-confidence")
+            throw UsageError("\(questions[last].label(last + 1)) repeats --min-confidence")
         }
         guard let bar = Double(value), bar.isFinite, (0...1).contains(bar) else {
             throw UsageError("--min-confidence needs a number from 0 to 1, got \"\(value)\"")
         }
         questions[last].minimumConfidence = bar
+    }
+
+    /// Names the last question. Every kind takes the flag, and each question
+    /// takes it once. The name is an identifier; the run-wide uniqueness
+    /// check comes after every question is built.
+    private static func setName(
+        _ value: String,
+        to questions: inout [QuestionBuilder]
+    ) throws(UsageError) {
+        guard let last = questions.indices.last else {
+            throw UsageError("--name before any question")
+        }
+        guard questions[last].name == nil else {
+            throw UsageError("\(questions[last].label(last + 1)) repeats --name")
+        }
+        guard isIdentifier(value) else {
+            throw UsageError(
+                "\(questions[last].label(last + 1)) has an invalid name \"\(value)\": "
+                    + "a letter or _ then letters, digits, or _"
+            )
+        }
+        questions[last].name = value
+    }
+
+    /// Refuses a name that two questions share. Names are the ids the
+    /// questions run under, and the library needs them unique.
+    private static func checkUniqueNames(_ questions: [Question]) throws(UsageError) {
+        var seen: Set<String> = []
+        for question in questions {
+            guard let name = question.name else { continue }
+            guard seen.insert(name).inserted else {
+                throw UsageError("question name \"\(name)\" is used twice")
+            }
+        }
     }
 
     /// Reads the value of a flag that takes one. Returns `nil` when the token
@@ -435,7 +482,7 @@ public enum CommandLineParser {
         guard !name.isEmpty, !name.contains(where: \.isWhitespace) else {
             return .unnamed(try contextSource(from: value, as: "--context "))
         }
-        guard isName(name) else {
+        guard isIdentifier(name) else {
             throw UsageError(
                 "--context name \"\(name)\" is not valid: a letter or _ then letters, digits, or _"
             )
@@ -446,9 +493,10 @@ public enum CommandLineParser {
         return .named(NamedContext(name: name, source: source))
     }
 
-    /// Whether the text is a name: ASCII, a letter or `_` first, then letters,
-    /// digits, or `_`.
-    private static func isName(_ text: String) -> Bool {
+    /// Whether the text is an identifier: ASCII, a letter or `_` first, then
+    /// letters, digits, or `_`. Context names and question names share the
+    /// rule.
+    static func isIdentifier(_ text: String) -> Bool {
         guard let first = text.first, first.isASCII, first.isLetter || first == "_" else {
             return false
         }
