@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-22T21:13:36-04:00
-updated: 2026-09-22T21:16:22-04:00
+updated: 2026-09-22T21:28:48-04:00
 may-unblock:
   - 5gr
 ---
@@ -52,3 +52,15 @@ Blocks 5gr (optional `--context`). In the library's tracker (`~/Code/DecisionMod
 _📝 Noted on 2026-09-22 21:16:22-04:00 @ git:a5ba60d+local_
 
 User decision 2026-09-22: drop the Package.swift comment about building against a local checkout; do not add the DEVELOPMENT.md section. decide takes the library through tagged releases only, so that each repository stages its updates independently.
+
+---
+
+_📝 Noted on 2026-09-22 21:23:24-04:00 @ git:a8927c8+local_
+
+Done 2026-09-22: Package.swift from 0.3.0, comment about a local checkout deleted, Package.resolved pins 0.3.0 at 355da43 after swift package resolve. Build with -warnings-as-errors clean; swift test --skip DecideLive 130/130 pass with no test changes; swift test --filter DecideLive passes with .env sourced (1 test, 0.5s). No other file changed; DEVELOPMENT.md untouched.
+
+---
+
+_📝 Noted on 2026-09-22 21:28:48-04:00 @ git:a8927c8+local_
+
+Verified 2026-09-22: all five acceptance criteria hold. Verifier also ran the macOS CI step (131 tests, 6 suites), 20 extra live runs, and TESTING.md's stdout checks, all clean. Linux unverified locally (no Docker); library Package.swift is identical between 0.2.2 and 0.3.0, so the risk is low.

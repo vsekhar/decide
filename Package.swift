@@ -9,8 +9,7 @@ let package = Package(
         .executable(name: "decide", targets: ["decide"]),
     ],
     dependencies: [
-        // DEVELOPMENT.md says how to build against a local checkout instead.
-        .package(url: "https://github.com/vsekhar/DecisionModels.git", from: "0.2.2"),
+        .package(url: "https://github.com/vsekhar/DecisionModels.git", from: "0.3.0"),
     ],
     targets: [
         .executableTarget(name: "decide", dependencies: ["DecideCore"]),
