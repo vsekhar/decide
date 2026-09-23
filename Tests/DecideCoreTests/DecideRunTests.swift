@@ -801,6 +801,89 @@ struct DecideRunTests {
         #expect(out.isEmpty)
     }
 
+    @Test("--model on the line beats DECIDE_MODEL")
+    func modelFlagOverTheEnvironment() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--model", "nosuch:x", "Q?"],
+            environment: ["DECIDE_MODEL": "other:model"],
+            stdout: &out,
+            stderr: &err
+        )
+
+        // Both values name an unknown provider, so neither path builds a
+        // model or sends a request. The one the message names is the one
+        // that won.
+        #expect(code == 10)
+        #expect(err.contains("nosuch"))
+        #expect(!err.contains("other"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("--model on the line beats a project config")
+    func modelFlagOverAProjectConfig() async throws {
+        let tree = try ConfigTree(project: #"DECIDE_MODEL = "other:model""#)
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--model", "nosuch:x", "Q?"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("nosuch"))
+        #expect(!err.contains("other"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("--model goes through the provider:model check")
+    func modelFlagNeedsAProvider() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--model", "jev-latest", "Q?"],
+            environment: [:],
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("is not provider:model"))
+        #expect(out.isEmpty)
+    }
+
+    @Test("--model and --api-key do not disturb a scripted run")
+    func modelAndKeyFlagsAnswer() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--model", "a:b", "--api-key", "k"] + Self.spamQuestion,
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("The usage text lists --model and --api-key as run flags")
+    func usageListsTheRunFlags() {
+        #expect(Decide.usage.contains("  --model <model>                The model for this run"))
+        #expect(Decide.usage.contains("  --api-key <key>                The API key for this run"))
+    }
+
     @Test("--set-config writes the home config, prints nothing, and exits 0")
     func setConfigWritesTheHomeFile() async throws {
         let tree = try ConfigTree()

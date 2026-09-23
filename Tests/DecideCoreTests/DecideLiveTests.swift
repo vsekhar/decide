@@ -130,4 +130,25 @@ struct DecideLiveTests {
         #expect(out == "yes\n")
         #expect(err.isEmpty)
     }
+
+    @Test("A --api-key on the line reaches the provider")
+    func keyFlagReachesTheProvider() async {
+        guard let environment = liveEnvironment() else { return }
+
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--api-key", "not-a-key", "Is Atlanta the capital of Georgia?"],
+            environment: environment,
+            stdout: &out,
+            stderr: &err
+        )
+
+        // The real key is in the environment, so only a flag the provider
+        // saw can make this fail.
+        #expect(code == 10)
+        #expect(err == "Error: the model server rejected the API key.\n")
+        #expect(out.isEmpty)
+    }
 }

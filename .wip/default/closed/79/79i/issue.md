@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T00:38:42-04:00
-updated: 2026-09-23T00:38:42-04:00
+updated: 2026-09-23T03:12:09-04:00
 ---
 
 # --model and --api-key without --set-config override the model and key for one run
@@ -81,3 +81,34 @@ wip/chc (config files; listed these flags as out of scope), wip/jq1 (`--set-conf
 - [ ] `Invocation.applied(to:)` is unit-tested for the precedence; the run-level tests prove the flag beats the environment and a file with no network; the live test proves a flag key reaches the provider.
 - [ ] `--help` and the README describe the flags and their precedence.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 02:58:22-04:00 @ git:1e11d31+local_
+
+Design record (2026-09-23), the decisions the Approach left open. Implemented as written there, plus:
+1. setConfigFlag(_:) is deleted, not shrunk: with --model and --api-key in the main grammar it would match one token, so the main loop checks `token == "--project"` inline and throws `--project needs --set-config`. Its doc comment goes with it.
+2. The two flags sit in the main loop right after --context, through flagValue, each guarded by a `was given twice` check and passed through setting(_:of:) for the empty/blank error, so the messages are `--model was given twice`, `--model is empty`, and the same for --api-key. Values are not trimmed; ModelConfiguration trims the model when it reads it.
+3. Invocation.applied(to:) needs no import: ModelConfiguration is in the same module. It copies the dictionary and assigns the two keys when set.
+4. The Environment paragraph of the usage text is rewrapped to fit its column after the new sentence; the words are the issue's.
+5. The applied(to:) tests live in a new Tests/DecideCoreTests/InvocationTests.swift, suite "Invocation". TESTING.md's list of suite names was already stale (ConfigFile and ConfigFiles were missing), so it is rewritten to list every suite, Invocation included.
+6. The live test asserts the exact line `Error: the model server rejected the API key.` and exit 10. If the real provider maps a bad key to some other error, that is a finding to report, not an assertion to loosen.
+7. wip/ndr landed first (Invocation.context is now Context?); the new init parameters go after quiet, both defaulted, so every call site compiles unchanged.
+
+---
+
+_📝 Noted on 2026-09-23 03:05:16-04:00 @ git:1e11d31+local_
+
+Implementation (2026-09-23): a worker implemented the Approach and the design record as written; no open question came up. Beyond the record:
+- setting(_:of:) now serves both grammars, so its doc's first words changed from "The value of a --set-config flag" to "The value of a --model or --api-key flag". Code unchanged.
+- One parser test added beyond the list, setConfigModelAlone (`--set-config --model a:b` gives .setConfig with a nil key), because no existing test covered that exact line.
+- The live test passed on the first run: the real provider answers a bad flag key with exit 10 and exactly `Error: the model server rejected the API key.`, with the real key still in the environment. So a flag key beats an environment key on the wire.
+Checks: warnings-as-errors build clean; `swift test --skip DecideLive` 271 tests in 8 suites pass; the live suite 4 tests pass.
+
+---
+
+_📝 Noted on 2026-09-23 03:12:09-04:00 @ git:1e11d31+local_
+
+Summary (2026-09-23): done. --model and --api-key in the main grammar set Invocation.model and .apiKey; Invocation.applied(to:) lays them over the environment after the config-file merge in Decide.run, so flags beat the environment, which beats the files. --set-config lines are untouched; setConfigFlag is gone and --project alone still errors. Usage, README Install block, and TESTING.md suite list updated.
+Verifier: all five acceptance criteria hold, no blockers. Acted on two notes: the Invocation test that checked two subscripts now compares whole dictionaries and a both-flags case was added; the two precedence run tests now put `other:model` (an unknown provider) in the environment and the project file instead of typesafe:jev-latest, so the failure path builds no real model either, and they assert the message names nosuch and not other. A mutant that drops the override line fails both tests with "other" in the message and no network. Left as a note: the new --set-config usage line is 89 printed columns, two past the old widest; it is the issue's verbatim text.
+Final: warnings-as-errors build clean; `swift test` with .env sourced, 276 tests in 9 suites passed, live included.

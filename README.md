@@ -10,6 +10,9 @@ Make decisions from the command line.
 ```sh
 $ brew install vsekhar/tap/decide
 $ decide --set-config --model typesafe:jev-latest --api-key abc123...
+
+# For one run, --model and --api-key on the command line win over every setting
+$ decide --model openrouter:typesafe/jev-1.13 "Is Atlanta the capital of Georgia?"
 ```
 
 ## Usage

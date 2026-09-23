@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:42:50-04:00
-updated: 2026-09-23T02:00:34-04:00
+updated: 2026-09-23T02:59:29-04:00
 ---
 
 # --show-names: print each answer as name=answer
@@ -81,3 +81,15 @@ wip/byu (`--name`) and wip/g3q (names as ids) give the labels their real values;
 _📝 Noted on 2026-09-23 02:00:34-04:00 @ git:55cbb66+local_
 
 Coordination 2026-09-23: --json is filed as 4qk. The check "--show-names does not go with --json" goes in whichever of 3tz and 4qk lands second, since the first cannot name a flag that does not exist yet.
+
+---
+
+_📝 Noted on 2026-09-23 02:59:29-04:00 @ git:1e11d31+local_
+
+Design record (2026-09-23), the decisions the Approach left open. Implemented as written there, plus:
+1. Order of the post-question checks in parse: the conflict check (`--show-names does not go with --quiet`) runs before the existing `--quiet needs exactly one yes/no question` check, because the pair is wrong whatever the questions are.
+2. Invocation.init parameter order: context, questions, quiet, showNames, model, apiKey; the last three defaulted (wip/79i landed first and added model and apiKey).
+3. The README example under Scripting goes right after the --json example and before "Branch in a script via exit codes", as the issue says; it uses --name from wip/byu, which is not built yet, so the README shows the spec and the run tests use q1, q2, q3.
+4. No named-question run test yet: wip/g3q and wip/byu have not landed. Add it with them.
+5. The --json conflict check is 4qk's, since 4qk lands after 3tz (per the coordination note).
+6. No live test: the wire does not change.

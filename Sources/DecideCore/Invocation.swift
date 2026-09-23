@@ -1,5 +1,5 @@
-/// What one run of `decide` asks: the questions, and the context they are
-/// about, if any.
+/// What one run of `decide` asks: the questions, the context they are about,
+/// if any, and the model and key to use, when the line names them.
 ///
 /// The parser builds this from the command line. Nothing here touches a file
 /// or the network. `ContextSource.file` names a path; the run reads it.
@@ -12,11 +12,37 @@ public struct Invocation: Sendable, Equatable {
     /// Print no answer, from `--quiet`. Only a run with one yes/no question
     /// may set it; the exit code carries the answer then.
     public var quiet: Bool
+    /// The model for this run from `--model`, or nil to use the environment
+    /// and the config files.
+    public var model: String?
+    /// The API key for this run from `--api-key`, or nil to use the
+    /// environment and the config files.
+    public var apiKey: String?
 
-    public init(context: Context?, questions: [Question], quiet: Bool = false) {
+    public init(
+        context: Context?,
+        questions: [Question],
+        quiet: Bool = false,
+        model: String? = nil,
+        apiKey: String? = nil
+    ) {
         self.context = context
         self.questions = questions
         self.quiet = quiet
+        self.model = model
+        self.apiKey = apiKey
+    }
+
+    /// The environment with this run's `--model` and `--api-key` laid over
+    /// it: `DECIDE_MODEL` is `model` when that is set, and
+    /// `DECIDE_MODEL_API_KEY` is `apiKey` when that is set. Every other
+    /// variable passes through. Pure, so the precedence is testable without
+    /// a model.
+    public func applied(to environment: [String: String]) -> [String: String] {
+        var environment = environment
+        if let model { environment[ModelConfiguration.modelVariable] = model }
+        if let apiKey { environment[ModelConfiguration.apiKeyVariable] = apiKey }
+        return environment
     }
 }
 

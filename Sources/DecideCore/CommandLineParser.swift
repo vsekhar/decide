@@ -47,12 +47,14 @@ public enum CommandLineParser {
     /// state. A `--context` whose value starts with a name and `=` is a named
     /// context, and the model sees every named context as one field of one
     /// object; a name that is not an identifier is an error, not text. A
-    /// line with more than one `--context` must name every one.
-    /// `--version` anywhere returns `.version(alone:)`, alone or not.
-    /// Without it, `--help` or `-h` anywhere returns `.help`. `--set-config`
-    /// after those two takes the line for itself: `--model`, `--api-key`, and
-    /// `--project` join it, and any other token is an error. Anything the
-    /// tool cannot run throws a `UsageError` that names the problem.
+    /// line with more than one `--context` must name every one. `--model`
+    /// and `--api-key` set the model and key for this run, over the
+    /// environment and every config file. `--version` anywhere returns
+    /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
+    /// anywhere returns `.help`. `--set-config` after those two takes the
+    /// line for itself: `--model`, `--api-key`, and `--project` join it, and
+    /// any other token is an error. Anything the tool cannot run throws a
+    /// `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         if arguments.contains("--version") { return .version(alone: arguments.count == 1) }
@@ -62,6 +64,8 @@ public enum CommandLineParser {
         var contexts: [ContextEntry] = []
         var questions: [QuestionBuilder] = []
         var quiet = false
+        var model: String?
+        var apiKey: String?
         var index = 0
 
         while index < arguments.count {
@@ -76,6 +80,18 @@ public enum CommandLineParser {
 
             if let value = try flagValue(of: "--context", token: token, arguments: arguments, index: &index) {
                 contexts.append(try contextEntry(from: value))
+                continue
+            }
+
+            if let value = try flagValue(of: "--model", token: token, arguments: arguments, index: &index) {
+                guard model == nil else { throw UsageError("--model was given twice") }
+                model = try setting(value, of: "--model")
+                continue
+            }
+
+            if let value = try flagValue(of: "--api-key", token: token, arguments: arguments, index: &index) {
+                guard apiKey == nil else { throw UsageError("--api-key was given twice") }
+                apiKey = try setting(value, of: "--api-key")
                 continue
             }
 
@@ -106,9 +122,7 @@ public enum CommandLineParser {
                 continue
             }
 
-            if let flag = setConfigFlag(token) {
-                throw UsageError("\(flag) needs --set-config")
-            }
+            if token == "--project" { throw UsageError("--project needs --set-config") }
 
             if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
 
@@ -132,7 +146,11 @@ public enum CommandLineParser {
             }
         }
 
-        return .run(Invocation(context: context, questions: finished, quiet: quiet))
+        return .run(
+            Invocation(
+                context: context, questions: finished, quiet: quiet, model: model, apiKey: apiKey
+            )
+        )
     }
 
     /// Parses a line that holds `--set-config`.
@@ -188,23 +206,12 @@ public enum CommandLineParser {
         return SetConfig(model: model, apiKey: apiKey, project: project)
     }
 
-    /// The value of a `--set-config` flag. A value that is empty or only
-    /// whitespace sets nothing, so it is an error. Anything else goes on as
-    /// the user typed it.
+    /// The value of a `--model` or `--api-key` flag. A value that is empty or
+    /// only whitespace sets nothing, so it is an error. Anything else goes on
+    /// as the user typed it.
     private static func setting(_ value: String, of flag: String) throws(UsageError) -> String {
         guard !value.allSatisfy(\.isWhitespace) else { throw UsageError("\(flag) is empty") }
         return value
-    }
-
-    /// The `--set-config` flag a token names, or nil for any other token.
-    /// `--model=x` and `--api-key=x` match too, so both forms of a value
-    /// report the same problem.
-    private static func setConfigFlag(_ token: String) -> String? {
-        if token == "--project" { return "--project" }
-        for flag in ["--model", "--api-key"] where token == flag || token.hasPrefix(flag + "=") {
-            return flag
-        }
-        return nil
     }
 
     /// One `--context` value as the parser reads it, before the line's values

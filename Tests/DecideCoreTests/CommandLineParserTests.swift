@@ -931,6 +931,87 @@ struct CommandLineParserTests {
         #expect(result == .run(invocation(Option(id: "-q"))))
     }
 
+    @Test("--model sets the run's model in either value form")
+    func modelFlag() throws {
+        let expected = ParseResult.run(
+            Invocation(
+                context: nil, questions: [question], quiet: false, model: "a:b", apiKey: nil
+            )
+        )
+        #expect(try CommandLineParser.parse(["--model", "a:b", "Q", "--option", "a"]) == expected)
+        #expect(try CommandLineParser.parse(["Q", "--option", "a", "--model=a:b"]) == expected)
+    }
+
+    @Test("--api-key sets the run's key in either value form")
+    func apiKeyFlag() throws {
+        let expected = ParseResult.run(
+            Invocation(
+                context: nil, questions: [question], quiet: false, model: nil, apiKey: "k"
+            )
+        )
+        #expect(try CommandLineParser.parse(["--api-key", "k", "Q", "--option", "a"]) == expected)
+        #expect(try CommandLineParser.parse(["Q", "--option", "a", "--api-key=k"]) == expected)
+    }
+
+    @Test("--model and --api-key work anywhere on a line with a context and questions")
+    func modelAndKeyAnywhere() throws {
+        let result = try CommandLineParser.parse([
+            "--model", "a:b",
+            "--context", "c",
+            "Q1", "--option", "a",
+            "Q2", "--option", "b",
+            "--api-key", "k",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .single(.text("c")),
+                        questions: [
+                            Question(instructions: "Q1", kind: .choice([Option(id: "a")])),
+                            Question(instructions: "Q2", kind: .choice([Option(id: "b")])),
+                        ],
+                        quiet: false,
+                        model: "a:b",
+                        apiKey: "k"
+                    )
+                )
+        )
+    }
+
+    @Test("A second --model or --api-key is an error")
+    func modelAndKeyComeOnce() {
+        let lines: [(String, [String])] = [
+            ("--model", ["Q", "--model", "a:b", "--model=c:d"]),
+            ("--api-key", ["Q", "--api-key", "k", "--api-key=k2"]),
+        ]
+        for (flag, line) in lines {
+            #expect(throws: UsageError("\(flag) was given twice"), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("A --model or --api-key value that is empty or blank is an error")
+    func modelAndKeyEmptyValue() {
+        #expect(throws: UsageError("--model is empty")) {
+            try CommandLineParser.parse(["Q", "--model="])
+        }
+        #expect(throws: UsageError("--model is empty")) {
+            try CommandLineParser.parse(["Q", "--model", " "])
+        }
+        #expect(throws: UsageError("--api-key is empty")) {
+            try CommandLineParser.parse(["Q", "--api-key", ""])
+        }
+    }
+
+    @Test("--model as the last token names the value it needs")
+    func modelNeedsAValue() {
+        #expect(throws: UsageError("--model needs a value")) {
+            try CommandLineParser.parse(["Q", "--model"])
+        }
+    }
+
     @Test("--set-config takes --model and --api-key in either value form")
     func setConfigValueForms() throws {
         let expected = ParseResult.setConfig(SetConfig(model: "typesafe:jev-latest", apiKey: "k"))
@@ -959,6 +1040,14 @@ struct CommandLineParserTests {
         )
     }
 
+    @Test("--set-config with only --model writes only the model")
+    func setConfigModelAlone() throws {
+        #expect(
+            try CommandLineParser.parse(["--set-config", "--model", "a:b"])
+                == .setConfig(SetConfig(model: "a:b", apiKey: nil))
+        )
+    }
+
     @Test("A --set-config value keeps everything after the first =")
     func setConfigValueWithEquals() throws {
         #expect(
@@ -982,19 +1071,10 @@ struct CommandLineParserTests {
         }
     }
 
-    @Test("--model, --api-key, and --project without --set-config name it")
-    func setConfigFlagsNeedTheFlag() {
-        let lines: [(String, [String])] = [
-            ("--model", ["Q", "--model", "typesafe:jev-latest"]),
-            ("--model", ["Q", "--model=typesafe:jev-latest"]),
-            ("--api-key", ["Q", "--api-key", "k"]),
-            ("--api-key", ["Q", "--api-key=k"]),
-            ("--project", ["Q", "--project"]),
-        ]
-        for (flag, line) in lines {
-            #expect(throws: UsageError("\(flag) needs --set-config"), "\(line)") {
-                try CommandLineParser.parse(line)
-            }
+    @Test("--project without --set-config is an error")
+    func projectNeedsSetConfig() {
+        #expect(throws: UsageError("--project needs --set-config")) {
+            try CommandLineParser.parse(["Q", "--project"])
         }
     }
 

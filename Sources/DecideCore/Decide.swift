@@ -28,9 +28,11 @@ public enum Decide {
                                          the run is unsure and exits 2. On a yes/no question, n
                                          means P(yes) at least (1 + n) / 2 for yes.
           --quiet, -q                    Print no answer. Only with one yes/no question.
-          --set-config                   Write settings to the home config and exit.
-          --model <model>                With --set-config, the model to write, provider:model.
-          --api-key <key>                With --set-config, the key to write. Home config only.
+          --model <model>                The model for this run, provider:model. Wins over
+                                         the environment and every config file.
+          --api-key <key>                The API key for this run. Wins over the environment
+                                         and every config file.
+          --set-config                   Write --model and --api-key to the home config and exit.
           --project                      With --set-config, write ./.decide/config instead.
           --help, -h                     Print this text.
           --version                      Print the version and exit. Takes no other arguments.
@@ -44,8 +46,8 @@ public enum Decide {
           Config files: .decide/config in the working directory and its parents,
           then ~/.config/decide/config and ~/.decide/config. Lines of
           KEY = "value" with the same two keys. The nearest file wins, and the
-          environment wins over every file. --set-config edits one line and
-          keeps the rest.
+          environment wins over every file. --model and --api-key win over both.
+          --set-config edits one line and keeps the rest.
 
         Exit codes: 0 decided, 2 unsure, 10 setup or input error, 11 remote error.
         One yes/no question answers with its exit code too: 0 yes, 1 no, like grep.
@@ -114,6 +116,7 @@ public enum Decide {
                 return ExitCode.code(for: error)
             }
         }
+        environment = invocation.applied(to: environment)
 
         let decisionModel: any DecisionModel
         do {
