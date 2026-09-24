@@ -15,6 +15,18 @@ private func failure(_ problem: String) -> ConfigError {
     ConfigError(path: path, line: 0, problem: problem)
 }
 
+/// The syntax refusal, with the detail Foundation gives on this platform.
+/// Apple's Foundation reports a byte offset, or "Unexpected end of file";
+/// the open-source Foundation on Linux reports neither, so the message
+/// there is the bare "not valid JSON". Both hold no text from the file.
+private func notValidJSON(_ detail: String) -> ConfigError {
+    #if canImport(Darwin)
+    return failure("not valid JSON" + detail)
+    #else
+    return failure("not valid JSON")
+    #endif
+}
+
 /// A file of one question, the object's keys given as JSON text.
 private func file(_ question: String) -> String {
     #"{"questions": [{\#(question)}]}"#
@@ -355,27 +367,27 @@ struct JSONQuestionFileTests {
 
     @Test("Invalid JSON is refused with the offset and no file content")
     func invalidJSON() {
-        #expect(throws: failure("not valid JSON at byte offset 14")) {
+        #expect(throws: notValidJSON(" at byte offset 14")) {
             try decode(#"{"questions": secret}"#)
         }
     }
 
     @Test("An empty text is refused")
     func emptyText() {
-        #expect(throws: failure("not valid JSON: Unexpected end of file")) {
+        #expect(throws: notValidJSON(": Unexpected end of file")) {
             try decode("")
         }
     }
     @Test("A bad escape in string instructions is refused with the offset")
     func instructionsBadEscape() {
-        #expect(throws: failure("not valid JSON at byte offset 35")) {
+        #expect(throws: notValidJSON(" at byte offset 35")) {
             try decode(#"{"questions": [{"instructions": "x\q"}]}"#)
         }
     }
 
     @Test("A literal tab in string instructions is refused with the offset")
     func instructionsLiteralTab() {
-        #expect(throws: failure("not valid JSON at byte offset 34")) {
+        #expect(throws: notValidJSON(" at byte offset 34")) {
             try decode("{\"questions\": [{\"instructions\": \"x\ty\"}]}")
         }
     }
@@ -397,7 +409,7 @@ struct JSONQuestionFileTests {
 
     @Test("A bad escape in a summary is refused with the offset")
     func summaryBadEscape() {
-        #expect(throws: failure("not valid JSON at byte offset 85")) {
+        #expect(throws: notValidJSON(" at byte offset 85")) {
             try decode(
                 #"{"questions": [{"instructions": "Which team?", "options": [{"id": "a", "summary": "x\q"}]}]}"#
             )
