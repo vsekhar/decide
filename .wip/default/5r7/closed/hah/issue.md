@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:25:20-04:00
-updated: 2026-09-23T23:37:06-04:00
+updated: 2026-09-24T01:05:06-04:00
 blocked-on:
   - g3q
 may-unblock:
@@ -63,3 +63,27 @@ Parent: JSON question files. Blocked on the model child. The splice child consum
 _📝 Noted on 2026-09-23 23:37:06-04:00 @ git:8fc9672+local_
 
 Amended 2026-09-23 while filing wip/1cy: the schema takes optional boolean stats and distribution keys mapping to Question.detail (wip/mb3), and an option, level, or side id is refused when it holds =, a tab, or a newline, so plain output lines stay parseable. Question.detail lands with wip/mb3; if this issue goes first, decode the keys into the fields it adds then, or land mb3's model change first.
+
+---
+
+_📝 Noted on 2026-09-24 00:46:50-04:00 @ git:a5afa16+local_
+
+Start (2026-09-24), decisions by the coordinator: (1) The decoder lives in its own file as its own type, public enum JSONQuestionFile in Sources/DecideCore/JSONQuestionFile.swift, with public static func questions(from text: String, path: String) throws(ConfigError) -> [Question]; not beside tokens in QuestionFile.swift as the Location says. Reason: wip/jt3 is being built at the same time and creates QuestionFile.swift; a separate type keeps the two independent, and the tokenizer, the JSON decoder, and the splice are three concerns. wip/rqr calls JSONQuestionFile.questions(from:path:). (2) Tests in Tests/DecideCoreTests/JSONQuestionFileTests.swift, suite JSONQuestionFile. (3) TESTING.md's suite list is updated by the coordinator after jt3 and this land. (4) Question.detail exists (wip/mb3 landed as a5afa16), so stats and distribution decode straight into it. (5) The worker runs in a git worktree; the coordinator copies the two new files into the main tree.
+
+---
+
+_📝 Noted on 2026-09-24 00:54:03-04:00 @ git:9a4a3f8+local_
+
+Implementation record (2026-09-24), from the worker's report, accepted by the coordinator: (1) Syntax errors: Foundation's descriptions quote the file, so the message is 'not valid JSON at byte offset N' when an offset is known, 'not valid JSON: Unexpected end of file' for that one content-free description (empty text gets this too), else plain 'not valid JSON'. (2) 'question <n>' counts from 1 as the parser does: 'questions[0]: question 1 mixes options, levels, yes, or no'. (3) Paths: the question itself for mixes and same-value-sides; the repeated item's .id for a repeat; .name for a repeated name; top-level messages have no path. (4) Wordings the description left open: 'missing key "x"'; 'expected a string' / 'an array of strings' / 'an object' / 'true or false' / 'an array of options|levels|questions' / 'a string or an object' / 'a number from 0 to 1' (for 1.5, a string, NaN, or inf alike); 'questions: a question file needs at least one question'; 'a choice needs at least one option'; '<path>.id: is empty'; '<path>.name: not a valid name: a letter or _ then letters, digits, or _' (the bad name is not quoted). (5) null is a wrong type, not an absent key. (6) With several unknown keys the first in sorted order is named, so the message is stable. (7) Known limit: a key repeated inside one JSON object passes JSONDecoder with the first value winning; refusing it needs a second parse, not done. (8) The worktree had been created at f6f9edf; the worker detached it at a5afa16 before starting; no commits.
+
+---
+
+_📝 Noted on 2026-09-24 00:57:54-04:00 @ git:9a4a3f8+local_
+
+Verifier (2026-09-24): AC1 and AC3 hold; AC2 holds with gaps. Two message defects and a test gap, routed back to the worker with these decisions: (1) InstructionsBody's string attempt must swallow only typeMismatch and valueNotFound; any other DecodingError (a bad escape, a literal control character in the string) propagates, so it reports 'not valid JSON at byte offset N' as the same fault does in every other string. (2) A value the type cannot hold that is still valid JSON grammar, such as min-confidence 1e999 overflowing Double, arrives as dataCorrupted with no offset; Object.optional maps a dataCorrupted whose underlying error carries no NSJSONSerializationErrorIndex to 'expected <noun>' at the key's path, and leaves one with an offset (a syntax error) to propagate. (3) Tests for every untested rule the verifier listed, plus regression tests for (1) and (2). (4) The two doc comments say a message names the JSON path where the problem has one. Left as observed: Foundation accepts trailing commas and a leading BOM (the schema is strict, the syntax is Foundation's); ids holding U+2028, U+0085, VT, or FF pass (the rule names =, tab, LF, CR); key names in messages carry control characters as written.
+
+---
+
+_📝 Noted on 2026-09-24 01:05:06-04:00 @ git:9a4a3f8+local_
+
+Summary (2026-09-24): done. JSONQuestionFile.questions(from:path:) in Sources/DecideCore/JSONQuestionFile.swift: a strict JSONDecoder-based decoder with allowed-key checks per object, every refusal a ConfigError at line 0 with the JSON path where the problem has one; 44 tests in the JSONQuestionFile suite; TESTING.md lists it. Verifier: AC1 and AC3 held, AC2 with gaps; acted on all three should-fixes: the instructions string attempt now swallows only typeMismatch and valueNotFound so a bad escape reports the syntax offset; min-confidence reads through optionalNumber, which turns Foundation's internal not-representable error (the only non-syntax error a number can raise inside init(from:)) into 'expected a number from 0 to 1' at the key's path; 17 tests added for the rules the description listed without a test; the two doc comments now say 'where the problem has one'. Built in a worktree and copied into main; the worktree is removed.

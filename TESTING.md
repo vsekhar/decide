@@ -27,8 +27,9 @@ swift build --build-tests -Xswiftc -warnings-as-errors
 ## One suite at a time
 
 Suite names match the source files: `CommandLineParser`, `Invocation`,
-`JSONOutput`, `PlainOutput`, `QuestionFile`, `Runner`, `ModelConfiguration`,
-`ConfigFile`, `ConfigFiles`, `ExitCode`, `DecideRun`, and `DecideLive`.
+`JSONOutput`, `JSONQuestionFile`, `PlainOutput`, `QuestionFile`, `Runner`,
+`ModelConfiguration`, `ConfigFile`, `ConfigFiles`, `ExitCode`, `DecideRun`,
+and `DecideLive`.
 
 ```sh
 swift test --filter CommandLineParser

@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:25:20-04:00
-updated: 2026-09-23T01:35:01-04:00
+updated: 2026-09-24T00:47:31-04:00
 blocked-on:
   - hah
   - qc4
@@ -61,3 +61,9 @@ Parent: JSON question files. Blocked on the decoder child and wip/qc4. The live 
 _📝 Noted on 2026-09-23 01:35:01-04:00 @ git:5da7fb9+local_
 
 Coordination 2026-09-23: the run-wide check that a question name is used once ("question name \"team\" is used twice") lives in CommandLineParser.parse, filed with the --name flag issue byu. Whichever lands first adds it over all finished questions; the other relies on it and tests the JSON case.
+
+---
+
+_📝 Noted on 2026-09-24 00:47:31-04:00 @ git:a5afa16+local_
+
+Coordination (2026-09-24), before start: (1) The decoder is JSONQuestionFile.questions(from:path:) in Sources/DecideCore/JSONQuestionFile.swift (wip/hah's note), not QuestionFile.questions(fromJSON:path:). (2) 'command-line questions have no names' is stale: --name landed (wip/byu), and CommandLineParser.checkUniqueNames runs over every finished question, so a JSON name can collide with a command-line --name or another file; the parser work here is a test of that path through parse(items:), not a new check. (3) Named contexts (wip/ndr) landed, so the live test uses the README's two --context name=... flags. (4) A JSON question's stats and distribution keys arrive as Question.detail and print through PlainOutput (wip/mb3); a run test should pin one JSON question with "distribution": true printing its distribution fields.
