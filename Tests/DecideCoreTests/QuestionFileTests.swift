@@ -180,6 +180,70 @@ private let readmeFile = """
 
     """
 
+/// The README's `triage.json`, byte for byte. The run and live tests use it
+/// too.
+let readmeTriageJSON = """
+    {
+      "questions": [
+        {
+          "name": "team",
+          "instructions": "Which team handles this ticket?",
+          "options": [
+            {
+              "id": "shipping",
+              "summary": "Delivery issues",
+              "examples": ["Package is late", "Tracking says delivered but nothing arrived"],
+              "signals": ["Names a carrier or a tracking number"]
+            },
+            {
+              "id": "billing",
+              "summary": "Payment problems",
+              "not_for": "Money back for an item the customer returned; that is returns",
+              "examples": ["Charged twice", "Card declined at checkout"]
+            },
+            {
+              "id": "returns",
+              "summary": "Exchanges and refunds",
+              "not_for": "Damage in transit; that is shipping",
+              "examples": ["Wrong size", "Wants money back for a returned item"]
+            }
+          ]
+        },
+        {
+          "name": "urgency",
+          "instructions": "How urgent is this ticket?",
+          "levels": [
+            {"id": "not_urgent",      "summary": "Customer feedback or feature request"},
+            {"id": "somewhat_urgent", "summary": "Customer problem, but customer not blocked"},
+            {"id": "urgent",          "summary": "Customer blocked",
+                                      "signals": ["cannot", "stuck", "deadline", "today"]}
+          ]
+        },
+        {
+          "name": "refund",
+          "instructions": {
+            "question": "Should we issue a refund?",
+            "rules": [
+              "Apply `refund_policy` to the `ticket`.",
+              "When the policy is silent, answer no."
+            ]
+          },
+          "yes": {"id": "Yes", "summary": "The policy allows a refund for this case"},
+          "no":  {"id": "No",  "summary": "The policy forbids it, or the customer does not ask for money back"},
+          "min-confidence": 0.7
+        }
+      ]
+    }
+    """
+
+/// The JSON file the tests name, so each error proves it carries the path.
+private let jsonPath = "/tmp/x/triage.json"
+
+/// The questions the README's `triage.json` decodes to.
+private func readmeTriageQuestions() throws -> [Question] {
+    try JSONQuestionFile.questions(from: readmeTriageJSON, path: jsonPath)
+}
+
 /// Expands the line with a reader that gives the text in `files`, throws the
 /// error in `failing`, and gives nil for any other path.
 private func expand(
@@ -285,10 +349,102 @@ struct QuestionFileExpansionTests {
         }
     }
 
-    @Test("A file that starts with { is refused as JSON, at its line")
-    func jsonFile() {
-        #expect(throws: refused(line: 2, "JSON question files are not supported yet")) {
-            try expand(["--questions", "@\(path)"], files: [path: "\n{\"questions\": []}\n"])
+    @Test("The README's triage.json gives one item of its three questions, in the flag's place")
+    func readmeJSONFile() throws {
+        let result = try expand(
+            ["--context", "@ticket.txt", "A", "--questions", "@\(jsonPath)", "B"],
+            files: [jsonPath: readmeTriageJSON]
+        )
+        let questions = try readmeTriageQuestions()
+        #expect(questions.map(\.name) == ["team", "urgency", "refund"])
+        #expect(
+            result
+                == items(["--context", "@ticket.txt", "A"]) + [.questions(questions)]
+                + items(["B"])
+        )
+    }
+
+    @Test("Whitespace and a BOM before { still make a JSON file")
+    func jsonAfterWhitespaceAndBOM() throws {
+        let questions = try readmeTriageQuestions()
+        for prefix in [" \t\r\n", "\u{FEFF}", "\u{FEFF}\n  "] {
+            let result = try expand(
+                ["--questions", "@\(jsonPath)"], files: [jsonPath: prefix + readmeTriageJSON]
+            )
+            #expect(result == [.questions(questions)], "\(Array(prefix.unicodeScalars))")
+        }
+    }
+
+    @Test("A file that starts with [ is refused: a question file is an object")
+    func topLevelArray() {
+        let refusal = ConfigError(
+            path: jsonPath, line: 0, problem: "a question file is an object with a questions array"
+        )
+        for file in ["[]", "\n [{\"instructions\": \"Q\"}]\n"] {
+            #expect(throws: refusal, "\(file)") {
+                try expand(["--questions", "@\(jsonPath)"], files: [jsonPath: file])
+            }
+        }
+    }
+
+    @Test("A text file that holds { after its start is still text")
+    func braceAfterTheStart() throws {
+        let file = "# {not JSON}\n\"x {y}\" --option {a}\n"
+        #expect(
+            try expand(["--questions", "@\(path)"], files: [path: file])
+                == items(["x {y}", "--option", "{a}"])
+        )
+    }
+
+    @Test("Inline JSON works, and its messages name --questions")
+    func inlineJSON() throws {
+        let result = try expand(
+            ["A", "--questions", #"{"questions": [{"instructions": "Q", "name": "q"}]}"#]
+        )
+        let expected = try JSONQuestionFile.questions(
+            from: #"{"questions": [{"instructions": "Q", "name": "q"}]}"#, path: "--questions"
+        )
+        #expect(expected.map(\.instructions) == ["Q"])
+        #expect(result == items(["A"]) + [.questions(expected)])
+        #expect(
+            throws: ConfigError(
+                path: "--questions",
+                line: 0,
+                problem: "questions: a question file needs at least one question"
+            )
+        ) {
+            try expand([#"--questions={"questions": []}"#])
+        }
+    }
+
+    @Test("A JSON schema error is the decoder's, and names the file")
+    func jsonSchemaError() {
+        let file = #"{"questions": [{"instructions": "Q", "sumary": "x"}]}"#
+        #expect(
+            throws: ConfigError(
+                path: jsonPath, line: 0, problem: #"questions[0]: unknown key "sumary""#
+            )
+        ) {
+            try expand(["--questions", "@\(jsonPath)"], files: [jsonPath: file])
+        }
+    }
+
+    @Test("JSON after a comment line is refused at the line of the {, not sent as text")
+    func jsonAfterAComment() {
+        let files = [
+            path: "# triage\n{\"questions\": [{\"instructions\": \"Q\"}]}\n",
+            "/tmp/x/a.json": "  # note\n\n[{\"instructions\": \"Q\"}]",
+        ]
+        #expect(throws: refused(line: 2, "a JSON question file starts with {, with nothing before it")) {
+            try expand(["--questions", "@\(path)"], files: files)
+        }
+        #expect(
+            throws: ConfigError(
+                path: "/tmp/x/a.json", line: 3,
+                problem: "a JSON question file starts with {, with nothing before it"
+            )
+        ) {
+            try expand(["--questions", "@/tmp/x/a.json"], files: files)
         }
     }
 

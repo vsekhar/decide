@@ -112,6 +112,50 @@ struct DecideLiveTests {
         #expect(err.isEmpty)
     }
 
+    @Test("decide answers the README's triage.json from two named contexts")
+    func triagesFromAJSONFile() async throws {
+        guard let environment = liveEnvironment() else { return }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).json")
+        try readmeTriageJSON.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: [
+                "--context",
+                "ticket=I received the shoes five days ago and want my money back. Order 4471.",
+                "--context", "refund_policy=Refunds are allowed within 30 days of delivery.",
+                "--questions", "@\(url.path)",
+            ],
+            environment: environment,
+            stdout: &out,
+            stderr: &err
+        )
+
+        // The refund question's bar is 0.7, so a model that is not sure
+        // exits 2 and prints nothing.
+        #expect(code == 0 || code == 2)
+        if code == 2 {
+            #expect(out.isEmpty)
+            #expect(err.hasPrefix("Error: unsure: "))
+            return
+        }
+        #expect(err.isEmpty)
+        // One name=answer line per question, in file order.
+        let lines = out.split(separator: "\n").map(String.init)
+        #expect(out.hasSuffix("\n"))
+        #expect(lines.count == 3)
+        guard lines.count == 3 else { return }
+        #expect(["team=shipping", "team=billing", "team=returns"].contains(lines[0]))
+        #expect(
+            ["urgency=not_urgent", "urgency=somewhat_urgent", "urgency=urgent"].contains(lines[1])
+        )
+        #expect(["refund=Yes", "refund=No"].contains(lines[2]))
+    }
+
     @Test("decide answers a question with no context")
     func answersWithoutContext() async {
         guard let environment = liveEnvironment() else { return }

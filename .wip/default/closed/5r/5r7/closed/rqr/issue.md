@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:25:20-04:00
-updated: 2026-09-24T00:47:31-04:00
+updated: 2026-09-24T01:14:56-04:00
 blocked-on:
   - hah
   - qc4
@@ -67,3 +67,15 @@ Coordination 2026-09-23: the run-wide check that a question name is used once ("
 _📝 Noted on 2026-09-24 00:47:31-04:00 @ git:a5afa16+local_
 
 Coordination (2026-09-24), before start: (1) The decoder is JSONQuestionFile.questions(from:path:) in Sources/DecideCore/JSONQuestionFile.swift (wip/hah's note), not QuestionFile.questions(fromJSON:path:). (2) 'command-line questions have no names' is stale: --name landed (wip/byu), and CommandLineParser.checkUniqueNames runs over every finished question, so a JSON name can collide with a command-line --name or another file; the parser work here is a test of that path through parse(items:), not a new check. (3) Named contexts (wip/ndr) landed, so the live test uses the README's two --context name=... flags. (4) A JSON question's stats and distribution keys arrive as Question.detail and print through PlainOutput (wip/mb3); a run test should pin one JSON question with "distribution": true printing its distribution fields.
+
+---
+
+_📝 Noted on 2026-09-24 01:05:59-04:00 @ git:5d10b3a+local_
+
+Start (2026-09-24), after wip/qc4 (5d10b3a) and wip/hah (cb3a694). Decisions: (5) The sniff lives in QuestionFile.expanding after source(of:read:): drop a BOM and leading whitespace, and a first character of { or [ sends the whole text to JSONQuestionFile.questions(from:path:), which already refuses a top-level array with 'a question file is an object with a questions array'; so one rule, 'JSON when it starts with { or [', and no separate [ branch. The 'JSON question files are not supported yet' guard in check(_:path:) and its tests go. (6) Expected plain output for the README's JSON file is team=returns / urgency=somewhat_urgent / refund=Yes, since wip/hcp prints a named question as name=answer; the description's bare lines are stale. (7) Names across the run need no new check: checkUniqueNames runs over every finished question in parse(items:); tests pin a JSON name colliding with another JSON file's name and with a line --name. (8) The live test accepts exit 0 with three lines or exit 2 with empty stdout and the unsure message, since the refund question carries min-confidence 0.7. (9) A run test pins a JSON question with distribution true printing its distribution fields through PlainOutput. (10) Usage: the --questions @<path> entry is rewritten as the description says, wrapped to the column; the synopsis line stays.
+
+---
+
+_📝 Noted on 2026-09-24 01:14:56-04:00 @ git:5d10b3a+local_
+
+Summary (2026-09-24): done. QuestionFile.expanding sniffs each --questions text: a first mark of { or [ after a BOM and whitespace goes to JSONQuestionFile.questions(from:path:) and splices as one .questions item in the flag's place; anything else is the text grammar. Names across the run were already checked by checkUniqueNames; tests pin a JSON name against another file and against a line --name. Usage entry rewritten; README unchanged. Run tests pin the README's triage.json (team=returns / urgency=somewhat_urgent / refund=Yes, the wire ids, the object instructions, the criteria), a schema error, an unsure refund, and a JSON question with distribution true. Live test triagesFromAJSONFile passes (5 live tests, one round trip each). Verifier: all five criteria hold, no should-fixes. Acted on its note: a text file whose first token starts with { or [ (JSON after a comment line) is refused with 'a JSON question file starts with {, with nothing before it' at that token's line, so such a file never reaches the model as garbage questions; a mutant removing the guard failed the test. Consequence: a text-file question may not begin with { or [. Also fixed the type comment's wording to match expanding's. Left: the README JSON fixture lives in two test files.

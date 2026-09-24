@@ -1590,6 +1590,41 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("A JSON file's names count across the run, and its questions take no flags")
+    func jsonQuestionsItems() throws {
+        let team = Question(
+            instructions: "Which team handles this ticket?",
+            kind: .choice([Option(id: "shipping"), Option(id: "returns")]),
+            name: "team"
+        )
+        let usedTwice = UsageError("question name \"team\" is used twice")
+
+        // Two files that each name a question team.
+        #expect(throws: usedTwice) {
+            try CommandLineParser.parse(items: [.questions([team]), .questions([team])])
+        }
+        // A file's team after a line question named team.
+        #expect(throws: usedTwice) {
+            try CommandLineParser.parse(items: [
+                .token("Q"), .token("--name"), .token("team"), .questions([team]),
+            ])
+        }
+        // A flag after a file belongs to no question.
+        #expect(throws: UsageError("--option after --questions belongs to no question")) {
+            try CommandLineParser.parse(items: [.questions([team]), .token("--option"), .token("x")])
+        }
+        // -q takes one yes/no question from a file.
+        let refund = Question(
+            instructions: "Should we issue a refund?",
+            kind: .verdict(yes: Option(id: "Yes"), no: Option(id: "No")),
+            name: "refund"
+        )
+        #expect(
+            try CommandLineParser.parse(items: [.token("-q"), .questions([refund])])
+                == .run(Invocation(context: nil, questions: [refund], quiet: true))
+        )
+    }
+
     /// The bar on every question a parse produced, in question order.
     private func bars(_ result: ParseResult) -> [Double?] {
         guard case .run(let invocation) = result else {

@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:25:20-04:00
-updated: 2026-09-23T01:25:20-04:00
+updated: 2026-09-24T01:14:56-04:00
 ---
 
 # JSON question files
@@ -48,3 +48,9 @@ The model child is proved by recording tests on `makeQuestionnaire`. The decoder
 | rqr | --questions reads a JSON file when it starts with {, and splices its questions in place | hah, wip/qc4 |
 
 Start with the model child; it touches `Runner.decide`, as wip/ndr does, so land one of the two before starting the other.
+
+---
+
+_📝 Noted on 2026-09-24 01:14:56-04:00 @ git:5d10b3a+local_
+
+Summary (2026-09-24): all three children landed: wip/g3q (names, rules, criteria on the wire), wip/hah (cb3a694, the strict decoder), wip/rqr (this commit, the sniff and the splice). The README's triage.json runs end to end, offline against a scripted model and live against the real one, and prints its three named answers. The scope of the title is met.

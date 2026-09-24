@@ -1,8 +1,11 @@
-/// The text question file format: tokens split as a shell splits a command
-/// line, plus `#` comments.
+/// The question files `--questions` reads. A text whose first mark after a
+/// BOM and whitespace is `{` or `[` is a JSON question file, which
+/// `JSONQuestionFile` decodes, refusing a top-level array. Anything else is
+/// the text format: tokens split as a shell splits a command line, plus `#`
+/// comments.
 ///
-/// No message holds text from the file, only the path, the line, and the
-/// name of a flag the file may not hold.
+/// No message about a text file holds text from the file, only the path,
+/// the line, and the name of a flag the file may not hold.
 public enum QuestionFile {
     /// One part of the command line after `--questions` expands.
     public enum Item: Equatable, Sendable {
@@ -13,20 +16,23 @@ public enum QuestionFile {
         case questions([Question])
     }
 
-    /// Replaces each `--questions` value on the line with the tokens it
-    /// holds, so its questions take the flag's place. Every other argument
-    /// passes through as it is.
+    /// Replaces each `--questions` value on the line with the questions it
+    /// holds, so they take the flag's place. Every other argument passes
+    /// through as it is.
     ///
     /// A value `@<path>` names a file, which `read` gives, or nil when there
     /// is no file. Any other value is the text itself, and messages name it
     /// `--questions`. A line with `--version`, `--help`, `-h`, or
     /// `--set-config` comes back as it is, and no file is read.
     ///
-    /// A file starts with a question, and holds only question flags. Throws
-    /// a `UsageError` for no arguments or a `--questions` with no value or
-    /// no path, and a
-    /// `ConfigError` that names the file for a file that is missing, does
-    /// not read, or holds what the rules refuse.
+    /// A text that starts with `{` or `[`, after a BOM and whitespace, is a
+    /// JSON question file: its questions take the flag's place finished, as
+    /// one `.questions` item. Any other text is the text format: its tokens
+    /// take the flag's place. A text file starts with a question, and holds
+    /// only question flags. Throws a `UsageError` for no arguments or a
+    /// `--questions` with no value or no path, and a `ConfigError` that
+    /// names the file for a file that is missing, does not read, or holds
+    /// what the rules refuse.
     public static func expanding(
         _ arguments: [String],
         read: (String) throws(ConfigReadError) -> String?
@@ -45,11 +51,25 @@ public enum QuestionFile {
                 continue
             }
             let (text, path) = try source(of: value, read: read)
+            if isJSON(text) {
+                items.append(.questions(try JSONQuestionFile.questions(from: text, path: path)))
+                continue
+            }
             let tokens = try tokens(of: text, path: path)
             try check(tokens, path: path)
             items.append(contentsOf: tokens.map { .token($0.text) })
         }
         return items
+    }
+
+    /// Whether the text is a JSON question file: its first scalar after a
+    /// BOM and whitespace is `{` or `[`. The decoder refuses a top-level
+    /// array with its own message.
+    private static func isJSON(_ text: String) -> Bool {
+        var scalars = text.unicodeScalars[...]
+        if scalars.first == "\u{FEFF}" { scalars.removeFirst() }
+        let first = scalars.first { !isSeparator($0) }
+        return first == "{" || first == "["
     }
 
     /// The flags a file may hold that take a value, as `--flag value` or
@@ -79,16 +99,19 @@ public enum QuestionFile {
         return (text, path)
     }
 
-    /// Refuses a file that is not a text question file. The first token is
-    /// a question, and a token that starts with `{` is JSON. Every later
-    /// token that starts with `-` is a question flag; the token after a
-    /// value flag is its value, which may start with `-`. That value is in
+    /// Refuses a text question file that breaks its rules. The first token
+    /// is a question, and one that starts with `{` or `[` is JSON that
+    /// something, such as a comment line, kept the sniff from seeing. Every
+    /// later token that starts with `-` is a question flag; the token after
+    /// a value flag is its value, which may start with `-`. That value is in
     /// the file too, so a file's tokens never reach the line after it.
     private static func check(_ tokens: [Token], path: String) throws(ConfigError) {
         guard let first = tokens.first else { return }
-        guard !first.text.hasPrefix("{") else {
+        guard !first.text.hasPrefix("{"), !first.text.hasPrefix("[") else {
             throw ConfigError(
-                path: path, line: first.line, problem: "JSON question files are not supported yet"
+                path: path,
+                line: first.line,
+                problem: "a JSON question file starts with {, with nothing before it"
             )
         }
         guard !first.text.hasPrefix("-") else {

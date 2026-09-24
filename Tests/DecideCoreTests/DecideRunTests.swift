@@ -97,10 +97,15 @@ struct DecideRunTests {
     }
 
     /// A model that answers the questions the request asks, in order, with
-    /// these records, each under the id the request gave. One model serves a
-    /// run of named questions, unnamed ones, or a mix.
-    private static func model(answering records: [AnswerRecord]) -> ScriptedModel {
+    /// these records, each under the id the request gave, and keeps the
+    /// request it got. One model serves a run of named questions, unnamed
+    /// ones, or a mix.
+    private static func model(
+        answering records: [AnswerRecord],
+        recording box: RequestBox? = nil
+    ) -> ScriptedModel {
         ScriptedModel { request in
+            box?.record(request)
             let ids = request.questionnaire.specs.map(\.id)
             return Answers(
                 records: Dictionary(uniqueKeysWithValues: zip(ids, records)),
@@ -1867,18 +1872,173 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
-    @Test("The usage text lists --questions")
-    func usageListsQuestions() {
+    /// The README's two named contexts, as inline texts.
+    private static let triageContexts = [
+        "--context", "ticket=I received the shoes five days ago and want my money back.",
+        "--context", "refund_policy=Refunds are allowed within 30 days of delivery.",
+    ]
+
+    @Test("The README's triage.json prints name=answer for its three questions")
+    func readmeJSONQuestionFile() async throws {
+        let path = try Self.questionFile(readmeTriageJSON)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.triageContexts + ["--questions", "@\(path)"],
+            environment: [:],
+            model: Self.model(
+                answering: [Self.teamAnswer, Self.urgencyAnswer, .verdict(probability: 0.87)],
+                recording: box
+            ),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "team=returns\nurgency=somewhat_urgent\nrefund=Yes\n")
+        #expect(err.isEmpty)
+        let specs = try #require(box.request).questionnaire.specs
+        #expect(specs.map(\.id) == ["team", "urgency", "refund"])
         #expect(
-            Decide.usage.contains(
-                "  --questions @<path>            Questions from a file, in the flag's place."
-            )
+            specs[2].instructions
+                == .object([
+                    "question": .text("Should we issue a refund?"),
+                    "rules": .array([
+                        .text("Apply `refund_policy` to the `ticket`."),
+                        .text("When the policy is silent, answer no."),
+                    ]),
+                ])
+        )
+        guard case .choice(let team) = specs[0].kind else {
+            Issue.record("The team question must be a choice.")
+            return
+        }
+        #expect(
+            team[0].criterion
+                == Criterion(
+                    "Delivery issues",
+                    examples: ["Package is late", "Tracking says delivered but nothing arrived"],
+                    signals: ["Names a carrier or a tracking number"]
+                )
         )
         #expect(
-            Decide.usage.contains(
-                "  --questions <text>             The same, from the text itself."
+            team[1].criterion
+                == Criterion(
+                    "Payment problems",
+                    notFor: "Money back for an item the customer returned; that is returns",
+                    examples: ["Charged twice", "Card declined at checkout"]
+                )
+        )
+    }
+
+    @Test("A JSON file with a schema error exits 10, names the file and path, and reaches no model")
+    func jsonSchemaError() async throws {
+        let path = try Self.questionFile(
+            #"{"questions": [{"instructions": "Q", "options": [{"id": "a", "sumary": "A"}]}]}"#
+        )
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--questions", "@\(path)"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: \(path): questions[0].options[0]: unknown key \"sumary\"\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A JSON file's refund below the file's bar prints nothing and exits 2")
+    func jsonFileUnsure() async throws {
+        let path = try Self.questionFile(readmeTriageJSON)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        var out = ""
+        var err = ""
+
+        // P(yes) 0.8 is confidence 0.60, below the file's bar of 0.70.
+        let code = await Decide.run(
+            arguments: Self.triageContexts + ["--questions", "@\(path)"],
+            environment: [:],
+            model: Self.model(
+                answering: [Self.teamAnswer, Self.urgencyAnswer, .verdict(probability: 0.8)]
+            ),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out.isEmpty)
+        #expect(
+            err == """
+                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.60, \
+                below the bar of 0.70
+
+                """
+        )
+    }
+
+    @Test("A JSON question with distribution true prints its stats and distribution")
+    func jsonDistribution() async throws {
+        let path = try Self.questionFile(
+            """
+            {"questions": [{
+              "instructions": "Is this message spam?",
+              "options": [{"id": "spam"}, {"id": "ham"}],
+              "distribution": true
+            }]}
+            """
+        )
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some message text", "--questions", "@\(path)"],
+            environment: [:],
+            model: Self.model(answering: [
+                .choice(reported: "spam", probabilities: ["spam": 0.8, "ham": 0.2], confidence: 0.8)
+            ]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "spam\tconfidence:0.800 probability:0.800\tspam:0.800\tham:0.200\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("--help lists --questions and both file kinds")
+    func usageListsQuestions() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--help"], environment: [:], stdout: &out, stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out.contains(
+                """
+                  --questions @<path>            Questions from a file, in the flag's place: a JSON
+                                                 file when it starts with {, else questions and their
+                                                 flags split like a command line, # starting a comment.
+                  --questions <text>             The same, from the text itself.
+
+                """
             )
         )
+        #expect(err.isEmpty)
     }
 }
 

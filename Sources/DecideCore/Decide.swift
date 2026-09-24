@@ -20,9 +20,9 @@ public enum Decide {
           --context <name>=<text>        A named context, as a field of one JSON object.
           --context <name>=@<path>       A named context from a file. With more than one
                                          --context, every one needs a name.
-          --questions @<path>            Questions from a file, in the flag's place. The file
-                                         holds questions and their flags, split like a command
-                                         line; # starts a comment.
+          --questions @<path>            Questions from a file, in the flag's place: a JSON
+                                         file when it starts with {, else questions and their
+                                         flags split like a command line, # starting a comment.
           --questions <text>             The same, from the text itself.
           "<question>"                   A question. The flags after it belong to it.
           --option <label>[=explanation] An option the model can choose, optional explanation.
@@ -78,7 +78,7 @@ public enum Decide {
     /// replaces the one the environment names, so tests inject a scripted
     /// one. Answers go to `stdout`, one per line, unless the run is quiet;
     /// everything else goes to `stderr`. Before it parses the line, it reads
-    /// each `--questions` file and puts the file's tokens in the flag's place.
+    /// each `--questions` file and puts its questions in the flag's place.
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
