@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:04:39-04:00
-updated: 2026-09-23T01:04:39-04:00
+updated: 2026-09-24T00:51:48-04:00
 may-unblock:
   - qc4
 ---
@@ -56,3 +56,21 @@ Child of the `--questions` parent. Sibling: the flag and the splice, blocked on 
 - [ ] The README's `triage.txt` tokenizes to its 14 tokens with correct line numbers.
 - [ ] Every rule above has a test, and an unterminated quote names the file and the opening line.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean and `swift test --skip DecideLive` passes.
+
+---
+
+_📝 Noted on 2026-09-24 00:45:53-04:00 @ git:a5afa16+local_
+
+Start (2026-09-24): the description is the spec; one addition: TESTING.md's suite list is updated by the coordinator after this and wip/hah land together, so this issue does not touch TESTING.md. Question.detail (wip/mb3) exists now; irrelevant here.
+
+---
+
+_📝 Noted on 2026-09-24 00:49:07-04:00 @ git:a5afa16+local_
+
+Spec corrections (2026-09-24), decided by the coordinator on the worker's report: (1) The README's triage.txt has 15 tokens, not 14: each of the first two questions is 1 + 6 tokens and the third is 1. Its second question starts on line 6, not 7, and the third on line 11. The description's Tests and Acceptance sections are wrong on both counts; the test pins 15 tokens on lines 1, 2-4, 6, 7-9, 11. (2) '"a"#c' is one token a#c, not a then a comment. The grammar (the authoritative section) says # is a comment only where a token would start, and quotes join with the text around them; a shell agrees: sh, bash, and xargs all give a#c. The description's Tests section said the opposite and its stated reason was false. (3) xargs cross-check: same split on every comparable fixture (triage.txt, whitespace, tabs, the # after a quote, single quotes, mid-word quotes, an empty pair, empty text); CRLF, BOM, comments, a quote spanning lines, and a lone '' cannot be compared with BSD xargs, and sh eval agreed with the tokenizer on each of those. (4) Judgement calls kept: Token is nested as QuestionFile.Token with a public init; a line ends only at a line feed, so a lone CR separates tokens but starts no line; in double quotes a backslash before a line feed is a kept pair; a trailing lone backslash inside double quotes is an unterminated quote.
+
+---
+
+_📝 Noted on 2026-09-24 00:51:48-04:00 @ git:a5afa16+local_
+
+Summary (2026-09-24): done. QuestionFile.tokens(of:path:) and QuestionFile.Token in Sources/DecideCore/QuestionFile.swift, pure, on Unicode scalars, with the grammar in its doc comment; ConfigError's doc comment now covers question files; 17 tests in the QuestionFile suite; TESTING.md lists the suite. Verifier: all three criteria hold (as corrected), no blockers, no crash or hang on edge inputs, shell cross-check agrees except where the grammar differs on purpose (a bare backslash outside quotes is ordinary; a backslash before a line feed inside double quotes stays as typed, unlike sh). Acted on its should-fix: a test now pins that nothing is expanded; and its note: a test pins that a lone CR separates tokens but starts no line. Left as observed: a file with CR-only line endings ends a # comment at the next LF, so a comment can eat the rest of such a file; by design since a line ends only at a line feed.

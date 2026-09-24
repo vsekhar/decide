@@ -416,8 +416,9 @@ public struct Entry: Equatable, Sendable {
     }
 }
 
-/// A config file the tool cannot use. The message carries no "Error: "
-/// prefix; `ExitCode` adds it with the path and the line.
+/// A file the tool reads and cannot use: a config file or a question file.
+/// The message carries no "Error: " prefix; `ExitCode` adds it with the path
+/// and the line.
 public struct ConfigError: Error, Equatable, Sendable {
     /// The file the problem is in.
     public let path: String

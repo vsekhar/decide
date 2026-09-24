@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:04:39-04:00
-updated: 2026-09-23T23:37:06-04:00
+updated: 2026-09-24T00:47:31-04:00
 blocked-on:
   - jt3
 may-unblock:
@@ -86,3 +86,9 @@ Coordination 2026-09-23: the --name flag (issue byu) is a question flag, so a te
 _📝 Noted on 2026-09-23 23:37:06-04:00 @ git:8fc9672+local_
 
 Amended 2026-09-23 while filing wip/1cy: the per-file token check's allowed list gains --name (byu has landed), --stats, and --distribution (wip/mb3); the last two take no value. The coordination note about --name is settled by this.
+
+---
+
+_📝 Noted on 2026-09-24 00:47:31-04:00 @ git:a5afa16+local_
+
+Coordination (2026-09-24), before start: (1) The question flags are now eight: --option, --level, --yes, --no, --min-confidence, --name (each alone or as --flag=value) and --stats, --distribution (exact tokens only; --stats=x is 'not allowed in a question file'). The same eight are the flags that, right after a .questions item, throw '<flag> after --questions belongs to no question'. (2) Order across items: the parser must keep finished questions from a .questions item in place among questions it is still building, so per-question flags attach only to a question the line is building; a private entry enum (building a builder, or done with a Question) is the natural shape, and question numbers in messages count every entry. (3) checkUniqueNames (from wip/byu) already runs over every finished question in parse, so a .questions item's names join that check for free; wip/rqr tests it. (4) The 'JSON question files are not supported yet' refusal is temporary: wip/rqr replaces it with a sniff that calls JSONQuestionFile.questions(from:path:), the decoder wip/hah builds in its own file. (5) The reader Decide.run passes is its private readConfigFile; the expansion's read parameter keeps the (String) throws(ConfigReadError) -> String? shape so the same function serves both.
