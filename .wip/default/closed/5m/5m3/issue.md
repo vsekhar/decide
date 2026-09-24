@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-24T02:48:54-04:00
-updated: 2026-09-24T02:49:20-04:00
+updated: 2026-09-24T04:00:06-04:00
 ---
 
 # Per-question unsure handling: every line prints, and --fallback
@@ -42,3 +42,9 @@ Scripted models in `DecideRunTests` prove each path: a batch with one unsure que
 
 - wip/a0g: an unsure question prints an empty answer; the other lines print, exit 2, stderr says `Unsure:`. Start here.
 - wip/oin: `--fallback` on a question and in a JSON file, and the remote-error path. Blocked on wip/a0g.
+
+---
+
+_📝 Noted on 2026-09-24 04:00:06-04:00 @ git:a506026_
+
+Summary (2026-09-24): done through wip/a0g (a2d24c9) and wip/oin (a506026). All eight design decisions are in: every line prints with an empty answer for an unsure question, --fallback per question on the line and in JSON files, the yes/no side rule, all-or-nothing remote errors, the exit-code precedence, the Unsure: prefix, the JSON shapes, and the model's numbers on unsure and fallback lines. Both children were verified against their criteria with scripted and live runs; 503 offline tests and 5 live tests pass.
