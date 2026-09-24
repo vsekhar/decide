@@ -5,7 +5,11 @@
 [![GitHub License](https://img.shields.io/github/license/vsekhar/decide)](LICENSE.txt)
 [![Follow @vsekhar on X](https://img.shields.io/twitter/follow/vsekhar)](https://x.com/vsekhar?ref_src=twsrc%5Etfw)
 
-Make decisions from the command line.
+Make decisions from the command line. No code required.
+
+Use decision models like [Typesafe's Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) to make smart decisions in your scripts, pipelines and applications. 
+
+Decision models let you ask and answer yes/no, multiple choice, and multiple level questions. Decision models can return an answer, the model's confidence in its answer, the probability of the answer being true, and even a full distribution across possible answers.
 
 ## Install and Setup
 
