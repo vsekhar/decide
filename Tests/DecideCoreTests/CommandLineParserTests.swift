@@ -1504,6 +1504,92 @@ struct CommandLineParserTests {
         )
     }
 
+    @Test("--questions that reaches the parser is an error, and reads no file")
+    func questionsNotExpanded() {
+        #expect(throws: UsageError("--questions was not expanded")) {
+            try CommandLineParser.parse(["Q", "--questions", "x"])
+        }
+        #expect(throws: UsageError("--questions was not expanded")) {
+            try CommandLineParser.parse(["Q", "--questions=@x"])
+        }
+        #expect(throws: UsageError("--questions needs a value")) {
+            try CommandLineParser.parse(["Q", "--questions"])
+        }
+    }
+
+    @Test("A .questions item keeps its place and counts in question numbers and -q")
+    func finishedQuestionsItem() throws {
+        let finished = Question(instructions: "F", kind: .choice([Option(id: "a")]))
+        let result = try CommandLineParser.parse(items: [
+            .token("A"), .questions([finished]), .token("B"), .token("--yes"), .token("y"),
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "A",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no"))
+                            ),
+                            finished,
+                            Question(
+                                instructions: "B",
+                                kind: .verdict(yes: Option(id: "y"), no: Option(id: "no"))
+                            ),
+                        ]
+                    )
+                )
+        )
+
+        // The finished question counts, so B is question 3.
+        #expect(throws: UsageError(#"question 3 ("B") needs at least two --level"#)) {
+            try CommandLineParser.parse(items: [
+                .token("A"), .questions([finished]), .token("B"), .token("--level"), .token("x"),
+            ])
+        }
+
+        // A finished yes/no question is the one -q needs, and counts against it.
+        let verdict = Question(
+            instructions: "V", kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no"))
+        )
+        #expect(
+            try CommandLineParser.parse(items: [.token("-q"), .questions([verdict])])
+                == .run(Invocation(context: nil, questions: [verdict], quiet: true))
+        )
+        #expect(throws: UsageError("--quiet needs exactly one yes/no question")) {
+            try CommandLineParser.parse(items: [.token("-q"), .token("A"), .questions([verdict])])
+        }
+    }
+
+    @Test("No items, as from an empty question file alone, is no question given")
+    func noItems() {
+        #expect(throws: UsageError("no question given")) {
+            try CommandLineParser.parse(items: [])
+        }
+    }
+
+    @Test("A question flag after a .questions item belongs to no question")
+    func flagAfterQuestionsItem() {
+        let finished = Question(instructions: "F", kind: .choice([Option(id: "a")]))
+        let flags = [
+            ["--option", "x"], ["--level", "x"], ["--yes", "x"], ["--no", "x"],
+            ["--min-confidence", "0.5"], ["--name", "n"], ["--stats"], ["--distribution"],
+            ["--option=x"], ["--name=n"],
+        ]
+        for flag in flags {
+            let name = flag[0].prefix { $0 != "=" }
+            #expect(
+                throws: UsageError("\(name) after --questions belongs to no question"), "\(flag)"
+            ) {
+                try CommandLineParser.parse(
+                    items: [.token("A"), .questions([finished])] + flag.map(QuestionFile.Item.token)
+                )
+            }
+        }
+    }
+
     /// The bar on every question a parse produced, in question order.
     private func bars(_ result: ParseResult) -> [Double?] {
         guard case .run(let invocation) = result else {

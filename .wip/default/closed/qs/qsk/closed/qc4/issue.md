@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:04:39-04:00
-updated: 2026-09-24T00:47:31-04:00
+updated: 2026-09-24T01:05:26-04:00
 blocked-on:
   - jt3
 may-unblock:
@@ -92,3 +92,21 @@ Amended 2026-09-23 while filing wip/1cy: the per-file token check's allowed list
 _📝 Noted on 2026-09-24 00:47:31-04:00 @ git:a5afa16+local_
 
 Coordination (2026-09-24), before start: (1) The question flags are now eight: --option, --level, --yes, --no, --min-confidence, --name (each alone or as --flag=value) and --stats, --distribution (exact tokens only; --stats=x is 'not allowed in a question file'). The same eight are the flags that, right after a .questions item, throw '<flag> after --questions belongs to no question'. (2) Order across items: the parser must keep finished questions from a .questions item in place among questions it is still building, so per-question flags attach only to a question the line is building; a private entry enum (building a builder, or done with a Question) is the natural shape, and question numbers in messages count every entry. (3) checkUniqueNames (from wip/byu) already runs over every finished question in parse, so a .questions item's names join that check for free; wip/rqr tests it. (4) The 'JSON question files are not supported yet' refusal is temporary: wip/rqr replaces it with a sniff that calls JSONQuestionFile.questions(from:path:), the decoder wip/hah builds in its own file. (5) The reader Decide.run passes is its private readConfigFile; the expansion's read parameter keeps the (String) throws(ConfigReadError) -> String? shape so the same function serves both.
+
+---
+
+_📝 Noted on 2026-09-24 00:52:19-04:00 @ git:9a4a3f8+local_
+
+Start (2026-09-24), after wip/jt3 landed as 9a4a3f8 (QuestionFile.tokens gives 15 tokens for the README file; second question on line 6). Further decisions: (6) flagValue and the pre-scan predicate (takesTheLine) become internal statics on CommandLineParser so the expansion reuses them. (7) A run test proves a file's --stats reaches its own question's line, since per-question flags now shape output (wip/mb3). (8) The '{' refusal stays exactly as the description says; wip/rqr replaces it with the sniff. (9) Decide.run's expansion error handling: a UsageError goes through report (message plus usage), a ConfigError prints ExitCode.message(for:) alone; both exit 10. (10) TESTING.md is not touched here.
+
+---
+
+_📝 Noted on 2026-09-24 01:02:27-04:00 @ git:9a4a3f8+local_
+
+Verifier (2026-09-24): all five criteria hold, no blockers. Two should-fixes routed back to the worker with these decisions: (1) A bare value flag as a file's last token would take the next command-line token as its value (t.txt holding '"Is it spam" --yes' then '-q' on the line makes -q the yes label); check(_:path:) now refuses it with '<flag> needs a value' at the flag's line, since a file's tokens may never reach past the file. (2) An empty file or empty inline text alone said 'no arguments given'; that guard moves to the raw arguments (parse(_:) and expanding), and parse(items:) with no items falls through to 'no question given'. (3) Wording: '--stats=x' in a file reports '--stats takes no value' rather than '--stats= is not allowed in a question file'. Left as observed: a value flag on the line right before --questions takes the file's first token as its value, as it would if typed; the usage synopsis line does not show --questions (wip/rqr rewrites that entry and may add it); parser messages about spliced tokens can quote file text without naming the file, which follows from splicing.
+
+---
+
+_📝 Noted on 2026-09-24 01:05:26-04:00 @ git:cb3a694+local_
+
+Summary (2026-09-24): done. QuestionFile.expanding(_:read:) replaces each --questions value with its file's or text's tokens as .token items (a .questions case waits for wip/rqr), reading through Decide.run's readConfigFile; a file must start with a question, may hold only the eight question flags, a value flag must have its value inside the file, and --stats/--distribution take no value; CommandLineParser.parse(items:) keeps a .questions item's finished questions in place through a private Entry enum, and parse(_:) wraps it; 'no arguments given' guards the raw arguments so an empty file reaches 'no question given'; usage and README updated. Verifier: all five criteria held; acted on both should-fixes (a mutant removing the end-of-file guard failed both regression tests) and the wording note. 440 offline tests and the 4 live tests pass.

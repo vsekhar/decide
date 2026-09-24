@@ -163,3 +163,221 @@ struct QuestionFileTests {
         )
     }
 }
+
+/// The README's `triage.txt`, as the file at `path`.
+private let readmeFile = """
+    "Which team handles this ticket"
+        --option shipping
+        --option billing
+        --option returns
+
+    "How urgent is this ticket"
+        --level not_urgent
+        --level somewhat_urgent
+        --level urgent
+
+    "Should we issue a refund"
+
+    """
+
+/// Expands the line with a reader that gives the text in `files`, throws the
+/// error in `failing`, and gives nil for any other path.
+private func expand(
+    _ arguments: [String],
+    files: [String: String] = [:],
+    failing: [String: ConfigReadError] = [:]
+) throws -> [QuestionFile.Item] {
+    try QuestionFile.expanding(arguments) { (path: String) throws(ConfigReadError) -> String? in
+        if let error = failing[path] { throw error }
+        return files[path]
+    }
+}
+
+/// Each argument as a token item.
+private func items(_ arguments: [String]) -> [QuestionFile.Item] {
+    arguments.map(QuestionFile.Item.token)
+}
+
+/// The error a file refuses with, at `path`.
+private func refused(line: Int, _ problem: String) -> ConfigError {
+    ConfigError(path: path, line: line, problem: problem)
+}
+
+@Suite("QuestionFile expansion")
+struct QuestionFileExpansionTests {
+    @Test("The README line gives the context flag, then the file's 15 tokens")
+    func readmeLine() throws {
+        let result = try expand(
+            ["--context", "@ticket.txt", "--questions", "@\(path)"], files: [path: readmeFile]
+        )
+        #expect(
+            result
+                == items([
+                    "--context", "@ticket.txt",
+                    "Which team handles this ticket",
+                    "--option", "shipping", "--option", "billing", "--option", "returns",
+                    "How urgent is this ticket",
+                    "--level", "not_urgent", "--level", "somewhat_urgent", "--level", "urgent",
+                    "Should we issue a refund",
+                ])
+        )
+    }
+
+    @Test("A question before and after the flag keeps its place")
+    func questionsAroundTheFlag() throws {
+        let result = try expand(
+            ["A", "--questions", "@\(path)", "B"], files: [path: "C --option x"]
+        )
+        #expect(result == items(["A", "C", "--option", "x", "B"]))
+    }
+
+    @Test("Two --questions flags each splice their own file")
+    func twoFlags() throws {
+        let result = try expand(
+            ["--questions", "@a", "--questions", "@b"], files: ["a": "A", "b": "B --yes y"]
+        )
+        #expect(result == items(["A", "B", "--yes", "y"]))
+    }
+
+    @Test("--questions=@path reads the file")
+    func equalsForm() throws {
+        #expect(try expand(["--questions=@\(path)"], files: [path: "A"]) == items(["A"]))
+    }
+
+    @Test("A value without @ is the text itself, and messages name it --questions")
+    func inlineText() throws {
+        #expect(
+            try expand(["--questions", #""Q one" --yes y"#]) == items(["Q one", "--yes", "y"])
+        )
+        #expect(
+            throws: ConfigError(
+                path: "--questions",
+                line: 1,
+                problem: "a question file starts with a question, not a flag"
+            )
+        ) {
+            try expand(["--questions=--model x"])
+        }
+    }
+
+    @Test("A line with --help, -h, --version, or --set-config comes back as it is")
+    func lineTakers() throws {
+        for flag in ["--help", "-h", "--version", "--set-config"] {
+            let line = ["--questions", "@nope", flag]
+            #expect(try expand(line) == items(line), "\(flag)")
+        }
+    }
+
+    @Test("A missing file names the path")
+    func missingFile() {
+        #expect(throws: refused(line: 0, "no such file")) {
+            try expand(["--questions", "@\(path)"])
+        }
+    }
+
+    @Test("A file that does not read, or is not UTF-8, names the path")
+    func unreadableFile() {
+        #expect(throws: refused(line: 0, "cannot read the file")) {
+            try expand(["--questions", "@\(path)"], failing: [path: .unreadable])
+        }
+        #expect(throws: refused(line: 0, "is not valid UTF-8")) {
+            try expand(["--questions", "@\(path)"], failing: [path: .notUTF8])
+        }
+    }
+
+    @Test("A file that starts with { is refused as JSON, at its line")
+    func jsonFile() {
+        #expect(throws: refused(line: 2, "JSON question files are not supported yet")) {
+            try expand(["--questions", "@\(path)"], files: [path: "\n{\"questions\": []}\n"])
+        }
+    }
+
+    @Test("A file that starts with a flag is refused at its line")
+    func flagFirst() {
+        #expect(throws: refused(line: 2, "a question file starts with a question, not a flag")) {
+            try expand(["--questions", "@\(path)"], files: [path: "# team\n--option a\n"])
+        }
+    }
+
+    @Test("A flag that is not a question flag is refused at its line, with no value")
+    func disallowedFlags() {
+        let cases: [(file: String, flag: String)] = [
+            ("Q\n--context c", "--context"),
+            ("Q\n--context=secret", "--context"),
+            ("Q\n--questions @other", "--questions"),
+            ("Q\n-q", "-q"),
+            ("Q\n--model a:b", "--model"),
+        ]
+        for (file, flag) in cases {
+            #expect(throws: refused(line: 2, "\(flag) is not allowed in a question file"), "\(file)") {
+                try expand(["--questions", "@\(path)"], files: [path: file])
+            }
+        }
+    }
+
+    @Test("--stats and --distribution with a value are refused, and the value does not print")
+    func bareFlagWithAValue() {
+        for flag in ["--stats", "--distribution"] {
+            #expect(throws: refused(line: 2, "\(flag) takes no value"), "\(flag)") {
+                try expand(["--questions", "@\(path)"], files: [path: "Q\n\(flag)=secret"])
+            }
+        }
+    }
+
+    @Test("A value flag as the file's last token needs a value, so it never takes the line's next token")
+    func valueFlagLast() {
+        #expect(throws: refused(line: 2, "--yes needs a value")) {
+            try expand(["--questions", "@\(path)", "-q"], files: [path: "\"Is it spam\"\n--yes\n"])
+        }
+        #expect(throws: refused(line: 3, "--option needs a value")) {
+            try expand(["--questions", "@\(path)"], files: [path: "Q\n--option a\n--option"])
+        }
+    }
+
+    @Test("No arguments is an error before any file is read")
+    func noArguments() {
+        #expect(throws: UsageError("no arguments given")) {
+            try expand([])
+        }
+    }
+
+    @Test("The token after a value flag is its value, even when it starts with -")
+    func valueStartingWithADash() throws {
+        let result = try expand(
+            ["--questions", "@\(path)"], files: [path: "Q --option -1 --option=-2"]
+        )
+        #expect(result == items(["Q", "--option", "-1", "--option=-2"]))
+    }
+
+    @Test("--stats, --distribution, and --name pass in a file")
+    func detailAndNameFlags() throws {
+        let result = try expand(
+            ["--questions", "@\(path)"],
+            files: [path: "Q --stats --name x R --distribution --name=y --min-confidence 0.5"]
+        )
+        #expect(
+            result
+                == items([
+                    "Q", "--stats", "--name", "x",
+                    "R", "--distribution", "--name=y", "--min-confidence", "0.5",
+                ])
+        )
+    }
+
+    @Test("An empty file, or one of comments alone, adds nothing")
+    func emptyFile() throws {
+        for file in ["", "# nothing here\n"] {
+            #expect(try expand(["A", "--questions", "@\(path)"], files: [path: file]) == items(["A"]))
+        }
+    }
+
+    @Test("--questions @ names no file, and a bare --questions at the end needs a value")
+    func missingValue() {
+        #expect(throws: UsageError("--questions @ names no file")) {
+            try expand(["A", "--questions", "@"])
+        }
+        #expect(throws: UsageError("--questions needs a value")) {
+            try expand(["A", "--questions"])
+        }
+    }
+}

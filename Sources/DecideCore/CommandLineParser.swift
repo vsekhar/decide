@@ -60,106 +60,154 @@ public enum CommandLineParser {
     /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
     /// anywhere returns `.help`. `--set-config` after those two takes the
     /// line for itself: `--model`, `--api-key`, and `--project` join it, and
-    /// any other token is an error. Anything the tool cannot run throws a
-    /// `UsageError` that names the problem.
+    /// any other token is an error. `--questions` is an error: the caller
+    /// expands it first, so the parser reads no file. Anything the tool
+    /// cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
-        if arguments.contains("--version") { return .version(alone: arguments.count == 1) }
-        if arguments.contains(where: { $0 == "--help" || $0 == "-h" }) { return .help }
-        if arguments.contains("--set-config") { return .setConfig(try parseSetConfig(arguments)) }
+        return try parse(items: arguments.map(QuestionFile.Item.token))
+    }
+
+    /// Parses the items `QuestionFile.expanding(_:read:)` gives, as
+    /// `parse(_:)` parses arguments. No items is no question: the line may
+    /// hold only an empty question file.
+    ///
+    /// A `.questions` item puts its finished questions at its place among the
+    /// questions the line builds, and they count in every question number. A
+    /// question flag after it, before the next question, belongs to no
+    /// question and is an error.
+    public static func parse(items: [QuestionFile.Item]) throws(UsageError) -> ParseResult {
+        let tokens = items.compactMap { item -> String? in
+            guard case .token(let token) = item else { return nil }
+            return token
+        }
+        if takesTheLine(tokens) {
+            if tokens.contains("--version") { return .version(alone: items.count == 1) }
+            if tokens.contains(where: { $0 == "--help" || $0 == "-h" }) { return .help }
+            guard tokens.count == items.count else { throw UsageError("--set-config runs alone") }
+            return .setConfig(try parseSetConfig(tokens))
+        }
 
         var contexts: [ContextEntry] = []
-        var questions: [QuestionBuilder] = []
+        var entries: [Entry] = []
         var quiet = false
         var json = false
         var model: String?
         var apiKey: String?
-        var index = 0
+        var start = 0
 
-        while index < arguments.count {
-            let token = arguments[index]
-            index += 1
-
-            if token == "--quiet" || token == "-q" {
-                guard !quiet else { throw UsageError("--quiet was given twice") }
-                quiet = true
+        while start < items.count {
+            if case .questions(let finished) = items[start] {
+                entries.append(contentsOf: finished.map(Entry.done))
+                start += 1
                 continue
             }
-
-            if token == "--json" {
-                guard !json else { throw UsageError("--json was given twice") }
-                json = true
-                continue
+            // The tokens up to the next `.questions` item. A flag's value
+            // comes from these, so it never reaches past that item.
+            var arguments: [String] = []
+            while start < items.count, case .token(let token) = items[start] {
+                arguments.append(token)
+                start += 1
             }
+            var index = 0
 
-            if let value = try flagValue(of: "--context", token: token, arguments: arguments, index: &index) {
-                contexts.append(try contextEntry(from: value))
-                continue
+            while index < arguments.count {
+                let token = arguments[index]
+                index += 1
+
+                if token == "--quiet" || token == "-q" {
+                    guard !quiet else { throw UsageError("--quiet was given twice") }
+                    quiet = true
+                    continue
+                }
+
+                if token == "--json" {
+                    guard !json else { throw UsageError("--json was given twice") }
+                    json = true
+                    continue
+                }
+
+                if let value = try flagValue(of: "--context", token: token, arguments: arguments, index: &index) {
+                    contexts.append(try contextEntry(from: value))
+                    continue
+                }
+
+                if let value = try flagValue(of: "--model", token: token, arguments: arguments, index: &index) {
+                    guard model == nil else { throw UsageError("--model was given twice") }
+                    model = try setting(value, of: "--model")
+                    continue
+                }
+
+                if let value = try flagValue(of: "--api-key", token: token, arguments: arguments, index: &index) {
+                    guard apiKey == nil else { throw UsageError("--api-key was given twice") }
+                    apiKey = try setting(value, of: "--api-key")
+                    continue
+                }
+
+                if let value = try flagValue(of: "--option", token: token, arguments: arguments, index: &index) {
+                    try add(value, as: .option, to: &entries)
+                    continue
+                }
+
+                if let value = try flagValue(of: "--level", token: token, arguments: arguments, index: &index) {
+                    try add(value, as: .level, to: &entries)
+                    continue
+                }
+
+                if let value = try flagValue(of: "--yes", token: token, arguments: arguments, index: &index) {
+                    try add(value, as: .yes, to: &entries)
+                    continue
+                }
+
+                if let value = try flagValue(of: "--no", token: token, arguments: arguments, index: &index) {
+                    try add(value, as: .no, to: &entries)
+                    continue
+                }
+
+                if let value = try flagValue(
+                    of: "--min-confidence", token: token, arguments: arguments, index: &index
+                ) {
+                    try setMinimumConfidence(value, to: &entries)
+                    continue
+                }
+
+                if let value = try flagValue(of: "--name", token: token, arguments: arguments, index: &index) {
+                    try setName(value, to: &entries)
+                    continue
+                }
+
+                if let flag = DetailFlag(rawValue: token) {
+                    try setDetail(flag, to: &entries)
+                    continue
+                }
+
+                if try flagValue(
+                    of: "--questions", token: token, arguments: arguments, index: &index
+                ) != nil {
+                    throw UsageError("--questions was not expanded")
+                }
+
+                if token == "--project" { throw UsageError("--project needs --set-config") }
+
+                if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
+
+                guard !token.isEmpty else {
+                    throw UsageError("question \(entries.count + 1) is empty")
+                }
+                entries.append(.building(QuestionBuilder(instructions: token)))
             }
-
-            if let value = try flagValue(of: "--model", token: token, arguments: arguments, index: &index) {
-                guard model == nil else { throw UsageError("--model was given twice") }
-                model = try setting(value, of: "--model")
-                continue
-            }
-
-            if let value = try flagValue(of: "--api-key", token: token, arguments: arguments, index: &index) {
-                guard apiKey == nil else { throw UsageError("--api-key was given twice") }
-                apiKey = try setting(value, of: "--api-key")
-                continue
-            }
-
-            if let value = try flagValue(of: "--option", token: token, arguments: arguments, index: &index) {
-                try add(value, as: .option, to: &questions)
-                continue
-            }
-
-            if let value = try flagValue(of: "--level", token: token, arguments: arguments, index: &index) {
-                try add(value, as: .level, to: &questions)
-                continue
-            }
-
-            if let value = try flagValue(of: "--yes", token: token, arguments: arguments, index: &index) {
-                try add(value, as: .yes, to: &questions)
-                continue
-            }
-
-            if let value = try flagValue(of: "--no", token: token, arguments: arguments, index: &index) {
-                try add(value, as: .no, to: &questions)
-                continue
-            }
-
-            if let value = try flagValue(
-                of: "--min-confidence", token: token, arguments: arguments, index: &index
-            ) {
-                try setMinimumConfidence(value, to: &questions)
-                continue
-            }
-
-            if let value = try flagValue(of: "--name", token: token, arguments: arguments, index: &index) {
-                try setName(value, to: &questions)
-                continue
-            }
-
-            if let flag = DetailFlag(rawValue: token) {
-                try setDetail(flag, to: &questions)
-                continue
-            }
-
-            if token == "--project" { throw UsageError("--project needs --set-config") }
-
-            if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
-
-            guard !token.isEmpty else { throw UsageError("question \(questions.count + 1) is empty") }
-            questions.append(QuestionBuilder(instructions: token))
         }
 
-        guard !questions.isEmpty else { throw UsageError("no question given") }
+        guard !entries.isEmpty else { throw UsageError("no question given") }
 
         var finished: [Question] = []
-        for (offset, builder) in questions.enumerated() {
-            let question = try builder.question(number: offset + 1)
-            finished.append(question)
+        for (offset, entry) in entries.enumerated() {
+            switch entry {
+            case .building(let builder):
+                finished.append(try builder.question(number: offset + 1))
+            case .done(let question):
+                finished.append(question)
+            }
         }
 
         try checkUniqueNames(finished)
@@ -192,6 +240,13 @@ public enum CommandLineParser {
                 apiKey: apiKey
             )
         )
+    }
+
+    /// Whether a flag on the line takes the whole line: `--version`,
+    /// `--help`, `-h`, or `--set-config`. The parser answers such a line
+    /// before it reads any question, and the expansion reads no file for it.
+    static func takesTheLine(_ arguments: [String]) -> Bool {
+        arguments.contains { ["--version", "--help", "-h", "--set-config"].contains($0) }
     }
 
     /// Parses a line that holds `--set-config`.
@@ -260,6 +315,13 @@ public enum CommandLineParser {
     private enum ContextEntry {
         case unnamed(ContextSource)
         case named(NamedContext)
+    }
+
+    /// One question on the line, in line order: one the parser still builds
+    /// from the flags after it, or one a `.questions` item gave finished.
+    private enum Entry {
+        case building(QuestionBuilder)
+        case done(Question)
     }
 
     /// One question as the parser builds it. `flag` is the first kind flag
@@ -421,38 +483,53 @@ public enum CommandLineParser {
         }
     }
 
+    /// The last question on the line, which a question flag joins, and its
+    /// index. Throws when there is no question yet, or when the last one came
+    /// finished from a `.questions` item.
+    private static func lastBuilder(
+        _ entries: [Entry],
+        for flag: String
+    ) throws(UsageError) -> (index: Int, builder: QuestionBuilder) {
+        guard let last = entries.indices.last else {
+            throw UsageError("\(flag) before any question")
+        }
+        guard case .building(let builder) = entries[last] else {
+            throw UsageError("\(flag) after --questions belongs to no question")
+        }
+        return (last, builder)
+    }
+
     /// Adds an option, a level, or a yes or no side to the last question. The
     /// first kind flag fixes the kind, so a flag of another kind is an error.
     /// Each question takes `--yes` once and `--no` once.
     private static func add(
         _ value: String,
         as flag: KindFlag,
-        to questions: inout [QuestionBuilder]
+        to entries: inout [Entry]
     ) throws(UsageError) {
-        guard let last = questions.indices.last else {
-            throw UsageError("\(flag.rawValue) before any question")
-        }
-        if let existing = questions[last].flag, existing.group != flag.group {
+        var (last, builder) = try lastBuilder(entries, for: flag.rawValue)
+        if let existing = builder.flag, existing.group != flag.group {
             throw UsageError(
-                "\(questions[last].label(last + 1)) mixes \(existing.rawValue) and \(flag.rawValue)"
+                "\(builder.label(last + 1)) mixes \(existing.rawValue) and \(flag.rawValue)"
             )
         }
         let parsed = try option(from: value, as: flag)
         switch flag {
         case .option, .level:
-            questions[last].values.append(parsed)
+            builder.values.append(parsed)
         case .yes:
-            guard questions[last].yes == nil else {
-                throw UsageError("\(questions[last].label(last + 1)) repeats --yes")
+            guard builder.yes == nil else {
+                throw UsageError("\(builder.label(last + 1)) repeats --yes")
             }
-            questions[last].yes = parsed
+            builder.yes = parsed
         case .no:
-            guard questions[last].no == nil else {
-                throw UsageError("\(questions[last].label(last + 1)) repeats --no")
+            guard builder.no == nil else {
+                throw UsageError("\(builder.label(last + 1)) repeats --no")
             }
-            questions[last].no = parsed
+            builder.no = parsed
         }
-        if questions[last].flag == nil { questions[last].flag = flag }
+        if builder.flag == nil { builder.flag = flag }
+        entries[last] = .building(builder)
     }
 
     /// Sets the confidence bar on the last question. Every kind takes the
@@ -460,18 +537,17 @@ public enum CommandLineParser {
     /// 0 to 1, so `nan` and `inf` are errors.
     private static func setMinimumConfidence(
         _ value: String,
-        to questions: inout [QuestionBuilder]
+        to entries: inout [Entry]
     ) throws(UsageError) {
-        guard let last = questions.indices.last else {
-            throw UsageError("--min-confidence before any question")
-        }
-        guard questions[last].minimumConfidence == nil else {
-            throw UsageError("\(questions[last].label(last + 1)) repeats --min-confidence")
+        var (last, builder) = try lastBuilder(entries, for: "--min-confidence")
+        guard builder.minimumConfidence == nil else {
+            throw UsageError("\(builder.label(last + 1)) repeats --min-confidence")
         }
         guard let bar = Double(value), bar.isFinite, (0...1).contains(bar) else {
             throw UsageError("--min-confidence needs a number from 0 to 1, got \"\(value)\"")
         }
-        questions[last].minimumConfidence = bar
+        builder.minimumConfidence = bar
+        entries[last] = .building(builder)
     }
 
     /// Names the last question. Every kind takes the flag, and each question
@@ -479,21 +555,20 @@ public enum CommandLineParser {
     /// check comes after every question is built.
     private static func setName(
         _ value: String,
-        to questions: inout [QuestionBuilder]
+        to entries: inout [Entry]
     ) throws(UsageError) {
-        guard let last = questions.indices.last else {
-            throw UsageError("--name before any question")
-        }
-        guard questions[last].name == nil else {
-            throw UsageError("\(questions[last].label(last + 1)) repeats --name")
+        var (last, builder) = try lastBuilder(entries, for: "--name")
+        guard builder.name == nil else {
+            throw UsageError("\(builder.label(last + 1)) repeats --name")
         }
         guard isIdentifier(value) else {
             throw UsageError(
-                "\(questions[last].label(last + 1)) has an invalid name \"\(value)\": "
+                "\(builder.label(last + 1)) has an invalid name \"\(value)\": "
                     + "a letter or _ then letters, digits, or _"
             )
         }
-        questions[last].name = value
+        builder.name = value
+        entries[last] = .building(builder)
     }
 
     /// Marks the last question for `--stats` or `--distribution`. Every kind
@@ -501,15 +576,14 @@ public enum CommandLineParser {
     /// on one question ask for the distribution, which holds the stats.
     private static func setDetail(
         _ flag: DetailFlag,
-        to questions: inout [QuestionBuilder]
+        to entries: inout [Entry]
     ) throws(UsageError) {
-        guard let last = questions.indices.last else {
-            throw UsageError("\(flag.rawValue) before any question")
+        var (last, builder) = try lastBuilder(entries, for: flag.rawValue)
+        guard !builder[keyPath: flag.field] else {
+            throw UsageError("\(builder.label(last + 1)) repeats \(flag.rawValue)")
         }
-        guard !questions[last][keyPath: flag.field] else {
-            throw UsageError("\(questions[last].label(last + 1)) repeats \(flag.rawValue)")
-        }
-        questions[last][keyPath: flag.field] = true
+        builder[keyPath: flag.field] = true
+        entries[last] = .building(builder)
     }
 
     /// Refuses a name that two questions share. Names are the ids the
@@ -527,7 +601,7 @@ public enum CommandLineParser {
     /// Reads the value of a flag that takes one. Returns `nil` when the token
     /// is some other flag or a bare word. Accepts `--flag value` and
     /// `--flag=value`, and steps the index past a value it consumes.
-    private static func flagValue(
+    static func flagValue(
         of flag: String,
         token: String,
         arguments: [String],

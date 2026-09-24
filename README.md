@@ -111,6 +111,8 @@ somewhat_urgent
 yes
 ```
 
+A text question file is split like a command line: whitespace separates tokens, quotes group them, and `#` starts a comment. Its questions take the flag's place, so `--questions` may repeat and mix with questions on the line.
+
 ```sh
 # JSON question files can use names, richer descriptions and structured instructions.
 $ cat triage.json

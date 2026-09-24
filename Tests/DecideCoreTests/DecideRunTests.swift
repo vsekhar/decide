@@ -1656,6 +1656,230 @@ struct DecideRunTests {
         #expect(err.contains("--project has no working directory"))
         #expect(out.isEmpty)
     }
+
+    /// Writes a question file to a new temp path and gives the path. The
+    /// caller removes it.
+    private static func questionFile(_ text: String) throws -> String {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).txt")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url.path
+    }
+
+    @Test("The README question file prints its three answers in order")
+    func readmeQuestionFile() async throws {
+        let path = try Self.questionFile(
+            """
+            "Which team handles this ticket"
+                --option shipping
+                --option billing
+                --option returns
+
+            "How urgent is this ticket"
+                --level not_urgent
+                --level somewhat_urgent
+                --level urgent
+
+            "Should we issue a refund"
+
+            """
+        )
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text", "--questions", "@\(path)"],
+            environment: [:],
+            model: Self.triageModel(recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\nsomewhat_urgent\nyes\n")
+        #expect(err.isEmpty)
+        let specs = try #require(box.request).questionnaire.specs
+        #expect(specs.map(\.id) == ["q1", "q2", "q3"])
+        #expect(
+            specs.map(\.instructions) == [
+                "Which team handles this ticket",
+                "How urgent is this ticket",
+                "Should we issue a refund",
+            ]
+        )
+    }
+
+    @Test("A question on the line before --questions answers first")
+    func lineQuestionBeforeTheFile() async throws {
+        let path = try Self.questionFile(
+            #""Which team handles this ticket?" --option shipping --option billing --option returns"#
+        )
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text", "Should we issue a refund?"]
+                + ["--questions", "@\(path)"],
+            environment: [:],
+            model: Self.model(answering: [.verdict(probability: 0.87), Self.teamAnswer]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\nreturns\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("A missing question file exits 10, names the file, and reaches no model")
+    func missingQuestionFile() async {
+        let path = "/nonexistent/\(UUID().uuidString).txt"
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text", "--questions", "@\(path)"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: \(path): no such file\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A question file with --context exits 10 and names the file and line")
+    func contextInAQuestionFile() async throws {
+        let path = try Self.questionFile("\"Is this spam?\"\n--context other\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--questions", "@\(path)"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: \(path):2: --context is not allowed in a question file\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A file ending in --yes does not take -q from the line as its value")
+    func valueFlagLastInAQuestionFile() async throws {
+        let path = try Self.questionFile("\"Is it spam\" --yes\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let model = Self.spamModel(probability: 0.9)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--questions", "@\(path)", "-q"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: \(path):1: --yes needs a value\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("An empty question file alone gives no question, with the usage text")
+    func emptyQuestionFile() async throws {
+        let path = try Self.questionFile("")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--questions", "@\(path)"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: no question given\n\n" + Decide.usage + "\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("--help wins over a missing question file")
+    func helpOverAMissingQuestionFile() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--questions", "@nope", "--help"],
+            environment: [:],
+            model: Self.triageModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == Decide.usage + "\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("--stats in a question file adds the stats to that question's line")
+    func statsInAQuestionFile() async throws {
+        let path = try Self.questionFile(
+            """
+            "How urgent is this ticket?" --stats
+                --level not_urgent --level somewhat_urgent --level urgent
+            """
+        )
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + ["--questions", "@\(path)"],
+            environment: [:],
+            model: Self.model(answering: [Self.teamAnswer, Self.urgencyAnswer]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == "returns\nsomewhat_urgent\tconfidence:0.780 probability:0.550 score:1.150\n"
+        )
+        #expect(err.isEmpty)
+    }
+
+    @Test("The usage text lists --questions")
+    func usageListsQuestions() {
+        #expect(
+            Decide.usage.contains(
+                "  --questions @<path>            Questions from a file, in the flag's place."
+            )
+        )
+        #expect(
+            Decide.usage.contains(
+                "  --questions <text>             The same, from the text itself."
+            )
+        )
+    }
 }
 
 /// A temp tree for the config tests, so the lookup never leaves it.

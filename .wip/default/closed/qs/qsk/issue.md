@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T01:04:39-04:00
-updated: 2026-09-23T23:37:06-04:00
+updated: 2026-09-24T01:05:26-04:00
 ---
 
 # Text question files and --questions
@@ -53,3 +53,9 @@ Start with the tokenizer.
 _📝 Noted on 2026-09-23 23:37:06-04:00 @ git:8fc9672+local_
 
 Amended 2026-09-23 while filing wip/1cy (per-question output): the allowed-flag list in Design Decisions gains --name, --stats, and --distribution. Run-wide flags stay errors in a file: a file describes questions, the command line runs them.
+
+---
+
+_📝 Noted on 2026-09-24 01:05:26-04:00 @ git:cb3a694+local_
+
+Summary (2026-09-24): both children landed: wip/jt3 (9a4a3f8, the tokenizer) and wip/qc4 (this commit, the flag and the splice). The README's triage.txt runs against a scripted model and prints its three answers in order; --questions splices in place, repeats, and mixes with line questions; run-wide flags in a file are errors; help, version, and --set-config win over a bad file. The scope of the title is met.

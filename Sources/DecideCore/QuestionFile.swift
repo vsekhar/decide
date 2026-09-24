@@ -1,8 +1,128 @@
 /// The text question file format: tokens split as a shell splits a command
 /// line, plus `#` comments.
 ///
-/// No message holds text from the file, only the path and the line.
+/// No message holds text from the file, only the path, the line, and the
+/// name of a flag the file may not hold.
 public enum QuestionFile {
+    /// One part of the command line after `--questions` expands.
+    public enum Item: Equatable, Sendable {
+        /// One argument, from the line or from a question file.
+        case token(String)
+        /// Finished questions, which take the item's place among the
+        /// questions on the line.
+        case questions([Question])
+    }
+
+    /// Replaces each `--questions` value on the line with the tokens it
+    /// holds, so its questions take the flag's place. Every other argument
+    /// passes through as it is.
+    ///
+    /// A value `@<path>` names a file, which `read` gives, or nil when there
+    /// is no file. Any other value is the text itself, and messages name it
+    /// `--questions`. A line with `--version`, `--help`, `-h`, or
+    /// `--set-config` comes back as it is, and no file is read.
+    ///
+    /// A file starts with a question, and holds only question flags. Throws
+    /// a `UsageError` for no arguments or a `--questions` with no value or
+    /// no path, and a
+    /// `ConfigError` that names the file for a file that is missing, does
+    /// not read, or holds what the rules refuse.
+    public static func expanding(
+        _ arguments: [String],
+        read: (String) throws(ConfigReadError) -> String?
+    ) throws -> [Item] {
+        guard !arguments.isEmpty else { throw UsageError("no arguments given") }
+        guard !CommandLineParser.takesTheLine(arguments) else { return arguments.map(Item.token) }
+        var items: [Item] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            index += 1
+            guard let value = try CommandLineParser.flagValue(
+                of: "--questions", token: argument, arguments: arguments, index: &index
+            ) else {
+                items.append(.token(argument))
+                continue
+            }
+            let (text, path) = try source(of: value, read: read)
+            let tokens = try tokens(of: text, path: path)
+            try check(tokens, path: path)
+            items.append(contentsOf: tokens.map { .token($0.text) })
+        }
+        return items
+    }
+
+    /// The flags a file may hold that take a value, as `--flag value` or
+    /// `--flag=value`.
+    private static let valueFlags = [
+        "--option", "--level", "--yes", "--no", "--min-confidence", "--name",
+    ]
+
+    /// The flags a file may hold that take no value.
+    private static let bareFlags = ["--stats", "--distribution"]
+
+    /// The text of a `--questions` value, and the path its messages name.
+    private static func source(
+        of value: String,
+        read: (String) throws(ConfigReadError) -> String?
+    ) throws -> (text: String, path: String) {
+        guard value.hasPrefix("@") else { return (value, "--questions") }
+        let path = String(value.dropFirst())
+        guard !path.isEmpty else { throw UsageError("--questions @ names no file") }
+        let text: String?
+        do {
+            text = try read(path)
+        } catch {
+            throw ConfigFiles.error(error, at: path)
+        }
+        guard let text else { throw ConfigError(path: path, line: 0, problem: "no such file") }
+        return (text, path)
+    }
+
+    /// Refuses a file that is not a text question file. The first token is
+    /// a question, and a token that starts with `{` is JSON. Every later
+    /// token that starts with `-` is a question flag; the token after a
+    /// value flag is its value, which may start with `-`. That value is in
+    /// the file too, so a file's tokens never reach the line after it.
+    private static func check(_ tokens: [Token], path: String) throws(ConfigError) {
+        guard let first = tokens.first else { return }
+        guard !first.text.hasPrefix("{") else {
+            throw ConfigError(
+                path: path, line: first.line, problem: "JSON question files are not supported yet"
+            )
+        }
+        guard !first.text.hasPrefix("-") else {
+            throw ConfigError(
+                path: path,
+                line: first.line,
+                problem: "a question file starts with a question, not a flag"
+            )
+        }
+        var index = 1
+        while index < tokens.count {
+            let token = tokens[index]
+            index += 1
+            guard token.text.hasPrefix("-") else { continue }
+            if bareFlags.contains(token.text) { continue }
+            if valueFlags.contains(token.text) {
+                guard index < tokens.count else {
+                    throw ConfigError(
+                        path: path, line: token.line, problem: "\(token.text) needs a value"
+                    )
+                }
+                index += 1
+                continue
+            }
+            // Only the name before the `=` prints, never a value from the
+            // file.
+            let name = String(token.text.prefix { $0 != "=" })
+            if name != token.text, valueFlags.contains(name) { continue }
+            let problem = bareFlags.contains(name)
+                ? "\(name) takes no value" : "\(name) is not allowed in a question file"
+            throw ConfigError(path: path, line: token.line, problem: problem)
+        }
+    }
+
     /// Splits the text of a question file into tokens. Pure: no I/O. `path`
     /// only names the file in a message. Tokens come back in file order.
     ///
