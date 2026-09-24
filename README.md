@@ -10,9 +10,6 @@ Make decisions from the command line.
 ```sh
 $ brew install vsekhar/tap/decide
 $ decide --set-config --model typesafe:jev-latest --api-key abc123...
-
-# For one run, --model and --api-key on the command line win over every setting
-$ decide --model openrouter:typesafe/jev-1.13 "Is Atlanta the capital of Georgia?"
 ```
 
 ## Usage
@@ -53,6 +50,13 @@ $ decide --context @ticket.txt \
          --level urgent="Customer blocked"
 somewhat_urgent
 
+# Compose context from multiple sources, refer by name in questions and options
+$ decide --context ticket=@ticket.txt \
+         --context refund_policy=@refund_policy.txt \
+         "Should we issue a refund?" \
+         --yes yes="Allowed by refund_policy and requested in ticket"
+no
+
 # Improve performance and cost by asking multiple questions at once against the same context
 $ decide --context @ticket.txt \
      "Which team handles this ticket?" \
@@ -70,25 +74,22 @@ yes
 
 # Name questions; a named question prints as name=answer
 $ decide --context @ticket.txt \
-     "Which team handles this ticket?" --name team \
-         --option shipping --option billing --option returns \
-     "Should we issue a refund?" --name refund
+     "Which team handles this ticket?"
+        --name team \
+        --option shipping \
+        --option billing \
+        --option returns \
+     "Should we issue a refund?" \
+         --name refund
 team=returns
 refund=yes
-
-# Compose context from multiple sources, refer by name in questions and options
-$ decide --context ticket=@ticket.txt \
-         --context refund_policy=@refund_policy.txt \
-         "Should we issue a refund?" \
-         --yes yes="Allowed by refund_policy and requested in ticket"
-no
 ```
 
 ## Advanced usage
 
 ### Question files
 
-Question files can be stored and version controlled.
+Questions and their details can be read from files. This is useful for placing questions under version control.
 
 ```sh
 # Text question files mimic the command line
@@ -111,7 +112,7 @@ somewhat_urgent
 yes
 ```
 
-A text question file is split like a command line: whitespace separates tokens, quotes group them, and `#` starts a comment. Its questions take the flag's place, so `--questions` may repeat and mix with questions on the line.
+Multiple question files can be specified, and questions on the command line and in files can be mixed. Questions from a file are inserted where the corresponding `--questions` flag appears on the command line.
 
 ```sh
 # JSON question files can use names, richer descriptions and structured instructions.
@@ -175,67 +176,66 @@ $ decide --context ticket=@ticket.txt \
 team=returns
 urgency=somewhat_urgent
 refund=Yes
-
-# Parse named questions using --json (and jq)
-$ decide --context ticket=@ticket.txt \
-         --context refund_policy=@refund_policy.txt \
-         --questions @triage.json \
-         --json
-{"team":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},
- "urgency":{"kind":"rating","answer":"somewhat_urgent","score":1.15,"confidence":0.78,"probabilities":{"not_urgent":0.15,"somewhat_urgent":0.55,"urgent":0.3}},
- "refund":{"kind":"verdict","answer":"Yes","verdict":true,"confidence":0.74,"probabilities":{"Yes":0.87,"No":0.13}}}
 ```
 
-The tool prints the object on one line. The example is wrapped for reading.
-
-### Scripting
+### Statistics: confidence and probabilities
 
 ```sh
-# Get confidence and breakdown of probabilities as JSON (one object keyed by question name; one line; parse with jq)
+# Request stats (confidence, probability) for a question with --stats
+# Request full distribution (probabilities of all answers) for question with --distribution
 $ decide --context @ticket.txt \
          "Which team handles this ticket?" \
-         --option shipping \
-         --option billing \
-         --option returns \
-         --json
-{"q1":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}}}
-
-# A named question prints as name=answer; an unnamed one prints its answer alone
-$ decide --context @ticket.txt \
-         "Which team handles this ticket?" --name team \
-             --option shipping --option billing --option returns \
-         "Should we issue a refund?"
-team=returns
-yes
-
-# --stats adds a tab-separated field of confidence, probability, and a rating's score;
-# --distribution adds that, then one field per option, level, or side. Both are per question.
-$ decide --context @ticket.txt \
-     "Which team handles this ticket?" --name team \
-         --option shipping --option billing --option returns \
-         --distribution \
-     "How urgent is this ticket?" \
-         --level not_urgent --level somewhat_urgent --level urgent \
-         --stats \
-     "Should we issue a refund?" --name refund
+             --name team \
+             --option shipping \
+             --option billing \
+             --option returns \
+             --distribution \
+         "How urgent is this ticket?" \
+             --level not_urgent \
+             --level somewhat_urgent \
+             --level urgent \
+             --stats \
+         "Should we issue a refund?" \
+             --name refund
 team=returns	confidence:0.910 probability:0.910	shipping:0.060	billing:0.030	returns:0.910
 somewhat_urgent	confidence:0.780 probability:0.550 score:1.150
 refund=yes
 
 # Fields are tab-separated; values inside the stats field are space-separated
-$ decide ... --stats | cut -f2 | cut -d' ' -f1 | cut -d: -f2                          # confidence
-$ decide ... --distribution | cut -f3- | tr '\t' '\n'                                    # one entry per line
-$ decide ... --distribution | cut -f3- | tr '\t' '\n' | grep '^billing:' | cut -d: -f2   # one by name
+$ decide ... --stats | cut -f2 | cut -d' ' -f1 | cut -d: -f2                             # confidence
+$ decide ... --distribution | cut -f3- | tr '\t' '\n' | grep '^billing:' | cut -d: -f2   # p('billing')
 ```
 
-The confidence and the probability are two different numbers on every kind of
-question. The confidence is the number `--min-confidence` tests, and it comes
-from the whole distribution. The probability is the chosen answer's alone. On a
-yes/no question the confidence is `|2p - 1|` and the probability is the chosen
-side's. A level's index counts from 0 in declared order, and a rating's score
-is the expected index. Numbers print with three decimals; `--json` prints the
-exact value, and for the whole distribution by name `--json` and `jq` are the
-shorter path.
+The chosen answer is always the answer with the highest probability and
+`--stats` prints that value in the `probability` field.
+
+The `confidence` value measures how sure the model is that it can answer the
+question with the given options. This is usually the value you want to check:
+low confidence means you should be cautious in acting on the model's decision.
+
+Compare the two responses to identical questions with different options:
+
+```sh
+$ % decide "What is the capital of Georgia?" \
+         --option Atlanta \
+         --option Chicago \
+         --distribution
+Atlanta confidence:1.000 probability:1.000      Atlanta:1.000   Chicago:0.000
+
+$ decide "What is the capital of Georgia?" \
+         --option Atlanta \
+         --option Tbilisi \
+         --distribution
+Tbilisi confidence:0.520 probability:0.760      Atlanta:0.240   Tbilisi:0.760
+```
+
+Notice that confidence is a function of the question as well as the given
+options. When the options consist of only US cities, "Georgia" is resolved
+to the US state and the model can answer confidently. When the options include
+Tbilisi, the model is no longer confident it can correctly answer the
+(ambiguous) question with the given options.
+
+### Scripting
 
 ```sh
 # Branch in a script via exit codes (-q suppresses printed output)
@@ -265,6 +265,40 @@ cat events.jsonl | decide --context policy=@policy.txt \
                           --each \
                           --questions @triage.decide \
                           --json > triage_decisions.jsonl
+```
+
+### JSON output
+
+Full parseable details of a decision can be obtained via JSON output:
+
+```sh
+$ decide --context @ticket.txt \
+         "Which team handles this ticket?" \
+         --option shipping \
+         --option billing \
+         --option returns \
+         --json
+{"q1":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}}}
+
+$ decide --context ticket=@ticket.txt \
+         --context refund_policy=@refund_policy.txt \
+         --questions @triage.json \
+         --json
+{"team":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},
+ "urgency":{"kind":"rating","answer":"somewhat_urgent","score":1.15,"confidence":0.78,"probabilities":{"not_urgent":0.15,"somewhat_urgent":0.55,"urgent":0.3}},
+ "refund":{"kind":"verdict","answer":"Yes","verdict":true,"confidence":0.74,"probabilities":{"Yes":0.87,"No":0.13}}}
+```
+
+JSON is output on one line (JSONL-style). The example above is wrapped for readability.
+
+### Command line configuration
+
+```sh
+# Model and API key can be specified (or overridden) on the command line for zero-config usage
+$ decide --model openrouter:typesafe/jev-1.13 \
+         --api-key abc123... \
+         "Is Atlanta the capital of Georgia?"
+yes
 ```
 
 ## Errors
