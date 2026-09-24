@@ -46,17 +46,6 @@ private func errorTable() -> [(error: any Error, code: Int32)] {
         (ConfigError(path: "p", line: 0, problem: "x"), 10),
         (CancellationError(), 11),
         (Unknown(), 11),
-        (
-            UnsureError(questions: [
-                Unsure(
-                    number: 3,
-                    instructions: "Should we issue a refund?",
-                    confidence: 0.2,
-                    minimumConfidence: 0.7
-                )
-            ]),
-            2
-        ),
     ]
 }
 
@@ -148,42 +137,6 @@ struct ExitCodeTests {
             problem: "is not valid UTF-8"
         )
         #expect(ExitCode.message(for: file) == "Error: /a/.decide/config: is not valid UTF-8")
-    }
-
-    @Test("An unsure run names every question, its confidence, and its bar")
-    func unsureMessage() {
-        let one = UnsureError(questions: [
-            Unsure(
-                number: 3,
-                instructions: "Should we issue a refund?",
-                confidence: 0.2,
-                minimumConfidence: 0.7
-            )
-        ])
-        #expect(
-            ExitCode.message(for: one)
-                == """
-                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
-                below the bar of 0.70
-                """
-        )
-
-        let two = UnsureError(questions: one.questions + [
-            Unsure(
-                number: 4,
-                instructions: "Is this urgent?",
-                confidence: 0.4,
-                minimumConfidence: 0.5
-            )
-        ])
-        #expect(
-            ExitCode.message(for: two)
-                == """
-                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
-                below the bar of 0.70; question 4 ("Is this urgent?") has confidence 0.40, \
-                below the bar of 0.50
-                """
-        )
     }
 
     @Test("A newline in a payload does not break the line")

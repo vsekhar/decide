@@ -205,6 +205,66 @@ struct PlainOutputTests {
         )
     }
 
+    /// The outcome as `Runner.decide` gives it for an answer below its bar:
+    /// the same numbers, marked unsure.
+    static func unsure(_ outcome: Outcome) -> Outcome {
+        var outcome = outcome
+        outcome.unsure = true
+        return outcome
+    }
+
+    @Test("An unsure named question prints name= and a sure one prints its answer")
+    func unsureNamedAnswer() {
+        let question = Self.teamQuestion(name: "team")
+        #expect(PlainOutput.line(for: question, outcome: Self.unsure(Self.teamOutcome)) == "team=")
+        #expect(PlainOutput.line(for: question, outcome: Self.teamOutcome) == "team=returns")
+    }
+
+    @Test("An unsure unnamed question prints an empty line")
+    func unsureUnnamedAnswer() {
+        #expect(
+            PlainOutput.line(for: Self.teamQuestion(), outcome: Self.unsure(Self.teamOutcome))
+                == ""
+        )
+        #expect(
+            PlainOutput.line(for: Self.refundQuestion(), outcome: Self.unsure(Self.refundOutcome))
+                == ""
+        )
+    }
+
+    @Test("--stats on an unsure answer prints the model's numbers after the empty answer")
+    func statsOnAnUnsureAnswer() {
+        #expect(
+            PlainOutput.line(
+                for: Self.teamQuestion(detail: .stats, name: "team"),
+                outcome: Self.unsure(Self.teamOutcome)
+            ) == "team=\tconfidence:0.910 probability:0.910"
+        )
+        #expect(
+            PlainOutput.line(
+                for: Self.urgencyQuestion(detail: .stats), outcome: Self.unsure(Self.urgencyOutcome)
+            ) == "\tconfidence:0.780 probability:0.550 score:1.200"
+        )
+    }
+
+    @Test("--distribution on an unsure answer prints every field")
+    func distributionOnAnUnsureAnswer() {
+        #expect(
+            PlainOutput.line(
+                for: Self.teamQuestion(detail: .distribution, name: "team"),
+                outcome: Self.unsure(Self.teamOutcome)
+            )
+                == "team=\tconfidence:0.910 probability:0.910"
+                    + "\tshipping:0.060\tbilling:0.030\treturns:0.910"
+        )
+        #expect(
+            PlainOutput.line(
+                for: Self.refundQuestion(detail: .distribution),
+                outcome: Self.unsure(Self.refundOutcome)
+            ) == "\tconfidence:0.740 probability:0.870\tYes:0.870\tNo:0.130"
+        )
+    }
+
     @Test("No line ends with a newline")
     func noTrailingNewline() {
         let lines = [

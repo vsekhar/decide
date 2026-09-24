@@ -582,27 +582,24 @@ struct RunnerTests {
             )
             let questions = Self.questions(bars: [bar, nil, nil])
 
-            if unsure {
-                let error = await #expect(throws: UnsureError.self) {
-                    _ = try await Runner.decide(questions, about: Self.context, using: session)
-                }
-                #expect(
-                    error
-                        == UnsureError(questions: [
-                            Unsure(
-                                number: 1,
-                                instructions: "Which team owns this ticket?",
-                                confidence: reported,
-                                minimumConfidence: bar
-                            )
-                        ])
-                )
-            } else {
-                let outcomes = try await Runner.decide(
-                    questions, about: Self.context, using: session
-                )
-                #expect(outcomes[0].answer == "returns")
-            }
+            let outcomes = try await Runner.decide(questions, about: Self.context, using: session)
+
+            #expect(outcomes[0].answer == "returns")
+            #expect(outcomes[0].unsure == unsure)
+            #expect(outcomes[1].unsure == false)
+            #expect(outcomes[2].unsure == false)
+            let expected =
+                unsure
+                ? [
+                    Unsure(
+                        number: 1,
+                        instructions: "Which team owns this ticket?",
+                        confidence: reported,
+                        minimumConfidence: bar
+                    )
+                ]
+                : []
+            #expect(Runner.unsureQuestions(in: questions, outcomes: outcomes) == expected)
         }
     }
 
@@ -622,16 +619,17 @@ struct RunnerTests {
             )
         )
 
-        let outcomes = try await Runner.decide(
+        let sure = try await Runner.decide(
             Self.questions(bars: [0.6, nil, nil]), about: Self.context, using: session
         )
-        #expect(outcomes[0].answer == "returns")
+        #expect(sure[0].answer == "returns")
+        #expect(sure[0].unsure == false)
 
-        await #expect(throws: UnsureError.self) {
-            _ = try await Runner.decide(
-                Self.questions(bars: [0.7, nil, nil]), about: Self.context, using: session
-            )
-        }
+        let unsure = try await Runner.decide(
+            Self.questions(bars: [0.7, nil, nil]), about: Self.context, using: session
+        )
+        #expect(unsure[0].answer == "returns")
+        #expect(unsure[0].unsure)
     }
 
     @Test("A rating is gated on its confidence over the whole scale")
@@ -642,16 +640,17 @@ struct RunnerTests {
         )
         let session = DecisionSession(model: ScriptedModel(answering: Self.answers(urgency: record)))
 
-        let outcomes = try await Runner.decide(
+        let sure = try await Runner.decide(
             Self.questions(bars: [nil, 0.3, nil]), about: Self.context, using: session
         )
-        #expect(outcomes[1].answer == "somewhat_urgent")
+        #expect(sure[1].answer == "somewhat_urgent")
+        #expect(sure[1].unsure == false)
 
-        await #expect(throws: UnsureError.self) {
-            _ = try await Runner.decide(
-                Self.questions(bars: [nil, 0.4, nil]), about: Self.context, using: session
-            )
-        }
+        let unsure = try await Runner.decide(
+            Self.questions(bars: [nil, 0.4, nil]), about: Self.context, using: session
+        )
+        #expect(unsure[1].answer == "somewhat_urgent")
+        #expect(unsure[1].unsure)
     }
 
     @Test("A verdict near 0.5 is unsure, and a confident yes or no is not")
@@ -664,11 +663,11 @@ struct RunnerTests {
             )
         )
 
-        await #expect(throws: UnsureError.self) {
-            _ = try await Runner.decide(
-                Self.questions(bars: [nil, nil, 0.7]), about: Self.context, using: session
-            )
-        }
+        let unsure = try await Runner.decide(
+            Self.questions(bars: [nil, nil, 0.7]), about: Self.context, using: session
+        )
+        #expect(unsure[2].answer == "Yes")
+        #expect(unsure[2].unsure)
 
         for (probability, answer) in [(0.05, "No"), (0.95, "Yes")] {
             let confident = DecisionSession(
@@ -685,11 +684,12 @@ struct RunnerTests {
             )
 
             #expect(outcomes[2].answer == answer)
+            #expect(outcomes[2].unsure == false)
         }
     }
 
     @Test("Two questions below their bars are both listed, in order")
-    func twoUnsureQuestions() async {
+    func twoUnsureQuestions() async throws {
         let session = DecisionSession(
             model: ScriptedModel(
                 answering: Self.answers(
@@ -703,30 +703,27 @@ struct RunnerTests {
                 )
             )
         )
+        let questions = Self.questions(bars: [0.7, nil, 0.8])
 
-        let error = await #expect(throws: UnsureError.self) {
-            _ = try await Runner.decide(
-                Self.questions(bars: [0.7, nil, 0.8]), about: Self.context, using: session
-            )
-        }
+        let outcomes = try await Runner.decide(questions, about: Self.context, using: session)
 
+        #expect(outcomes.map(\.unsure) == [true, false, true])
         #expect(
-            error
-                == UnsureError(questions: [
-                    Unsure(
-                        number: 1,
-                        instructions: "Which team owns this ticket?",
-                        confidence: 0.6,
-                        minimumConfidence: 0.7
-                    ),
-                    Unsure(
-                        number: 3,
-                        instructions: "Should we issue a refund?",
-                        // The library's number for P(yes) 0.6, to the last bit.
-                        confidence: AnswerRecord.verdict(probability: 0.6).confidence,
-                        minimumConfidence: 0.8
-                    ),
-                ])
+            Runner.unsureQuestions(in: questions, outcomes: outcomes) == [
+                Unsure(
+                    number: 1,
+                    instructions: "Which team owns this ticket?",
+                    confidence: 0.6,
+                    minimumConfidence: 0.7
+                ),
+                Unsure(
+                    number: 3,
+                    instructions: "Should we issue a refund?",
+                    // The library's number for P(yes) 0.6, to the last bit.
+                    confidence: AnswerRecord.verdict(probability: 0.6).confidence,
+                    minimumConfidence: 0.8
+                ),
+            ]
         )
     }
 
@@ -746,11 +743,38 @@ struct RunnerTests {
         )
         #expect(gated[2].confidence == 0)
         #expect(gated[2].answer == "Yes")
+        #expect(gated.map(\.unsure) == [false, false, false])
 
         let ungated = try await Runner.decide(
             Self.questions(bars: [nil, nil, nil]), about: Self.context, using: session
         )
         #expect(ungated[2].answer == "Yes")
+        #expect(ungated.map(\.unsure) == [false, false, false])
+    }
+
+    @Test("A question with no bar is never unsure, whatever its confidence")
+    func noBarNeverUnsure() async throws {
+        let session = DecisionSession(
+            model: ScriptedModel(
+                answering: Self.answers(
+                    urgency: .rating(
+                        score: 1.2, probabilities: Self.urgencyProbabilities, confidence: 0.01
+                    ),
+                    refund: .verdict(probability: 0.5),
+                    team: .choice(
+                        reported: "returns",
+                        probabilities: Self.teamProbabilities,
+                        confidence: 0.01
+                    )
+                )
+            )
+        )
+        let questions = Self.questions(bars: [nil, nil, nil])
+
+        let outcomes = try await Runner.decide(questions, about: Self.context, using: session)
+
+        #expect(outcomes.map(\.unsure) == [false, false, false])
+        #expect(Runner.unsureQuestions(in: questions, outcomes: outcomes).isEmpty)
     }
 
     @Test("A choice under a rating question is a malformed response")

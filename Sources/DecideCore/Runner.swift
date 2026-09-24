@@ -16,19 +16,25 @@ public struct Outcome: Sendable, Equatable {
     /// The rating's expected level index from the model, nil for a choice or
     /// a verdict.
     public let score: Double?
+    /// Whether the answer fell below the question's `--min-confidence` bar.
+    /// The numbers above are the model's either way. The line for an unsure
+    /// question prints no answer, and the run exits 2.
+    public var unsure: Bool
 
     public init(
         questionID: String,
         answer: String,
         confidence: Double,
         probabilities: [String: Double],
-        score: Double? = nil
+        score: Double? = nil,
+        unsure: Bool = false
     ) {
         self.questionID = questionID
         self.answer = answer
         self.confidence = confidence
         self.probabilities = probabilities
         self.score = score
+        self.unsure = unsure
     }
 }
 
@@ -86,9 +92,10 @@ public enum Runner {
     /// section 6.1 number over the whole scale.
     ///
     /// Throws `DecisionError.malformedResponse` when a question comes back
-    /// with no answer, or when the library rejects a record. Throws
-    /// `UnsureError` when a question with a bar gets an answer below it. The
-    /// bar compares against the same number `Outcome.confidence` holds.
+    /// with no answer, or when the library rejects a record. A question with
+    /// a bar whose answer falls below it comes back with `unsure` set, and
+    /// nothing is thrown for it: the bar compares against the same number
+    /// `Outcome.confidence` holds.
     public static func decide(
         _ questions: [Question],
         about state: State?,
@@ -101,7 +108,7 @@ public enum Runner {
         } else {
             answers = try await session.decide(questionnaire)
         }
-        let outcomes: [Outcome] = try questions.indices.map { index in
+        var outcomes: [Outcome] = try questions.indices.map { index in
             let id = identifier(for: questions[index], at: index)
             guard let record = answers.records[id] else {
                 throw DecisionError.malformedResponse("The response holds no answer for \(id).")
@@ -139,19 +146,29 @@ public enum Runner {
                 )
             }
         }
-        let unsure = questions.indices.compactMap { index -> Unsure? in
-            guard let bar = questions[index].minimumConfidence,
-                  outcomes[index].confidence < bar
-            else { return nil }
+        for index in questions.indices {
+            if let bar = questions[index].minimumConfidence, outcomes[index].confidence < bar {
+                outcomes[index].unsure = true
+            }
+        }
+        return outcomes
+    }
+
+    /// The unsure questions of a run, in question order, for the stderr
+    /// line: each outcome marked `unsure`, paired with its question's bar.
+    /// `questions` and `outcomes` pair up by position, as `decide` gives
+    /// them. Empty when every answer cleared its bar.
+    public static func unsureQuestions(in questions: [Question], outcomes: [Outcome]) -> [Unsure] {
+        zip(questions, outcomes).enumerated().compactMap { index, pair -> Unsure? in
+            let (question, outcome) = pair
+            guard outcome.unsure, let bar = question.minimumConfidence else { return nil }
             return Unsure(
                 number: index + 1,
-                instructions: questions[index].instructions,
-                confidence: outcomes[index].confidence,
+                instructions: question.instructions,
+                confidence: outcome.confidence,
                 minimumConfidence: bar
             )
         }
-        guard unsure.isEmpty else { throw UnsureError(questions: unsure) }
-        return outcomes
     }
 
     /// Turns a rating record into an outcome against the question's levels.

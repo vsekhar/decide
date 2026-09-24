@@ -180,6 +180,29 @@ urgency=somewhat_urgent
 refund=Yes
 ```
 
+### Confidence bars
+
+```sh
+# A question below its --min-confidence bar prints an empty answer; the others print theirs
+$ decide --context @ticket.txt \
+     "Which team handles this ticket?" \
+         --name team \
+         --option shipping \
+         --option billing \
+         --option returns \
+     "Should we issue a refund?" \
+         --name refund \
+         --min-confidence 0.9
+team=returns
+refund=
+
+stderr>  Unsure: question 2 ("Should we issue a refund?") has confidence 0.74, below the bar of 0.90
+$ echo $?
+2
+```
+
+The run exits 2 when any question is below its bar, after every line has printed. Check the exit code before you read stdout.
+
 ### Statistics: confidence and probabilities
 
 ```sh
@@ -357,6 +380,8 @@ When the run has one yes/no question, the exit code carries the answer as well:
 
 Only 0 and 1 carry an answer. A script that branches on the exit code should put the action on the yes side,
 or switch on `$?`.
+
+Exit 2 prints every line, and the unsure ones are empty. Check the code before you read stdout.
 
 `--fallback` turns an unsure answer (exit code 2) and a remote error (exit code 11) into decisions (exit code 0) and prints
 the fallback value. With one yes/no question it returns the code of the fallback's side, or the fallback exit code.

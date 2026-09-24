@@ -9,6 +9,11 @@
 /// probabilities in the question's declared order, so the output is stable
 /// and diffable. The text is written here rather than by `JSONEncoder`,
 /// which does not keep key order.
+///
+/// An answer below the question's `--min-confidence` bar has `"answer": null`
+/// and then `"unsure": true`, and a verdict's `verdict` is null too; the
+/// numbers are the model's as they stand. A sure answer has no `unsure` key,
+/// so its object is unchanged.
 public enum JSONOutput {
     /// The line for the answers, ending in one newline. `questions` and
     /// `outcomes` pair up by position, one outcome per question, as
@@ -29,29 +34,37 @@ public enum JSONOutput {
     private static func value(_ question: Question, _ outcome: Outcome) -> String {
         switch question.kind {
         case .choice(let options):
-            return object([
-                ("kind", string("choice")),
-                ("answer", string(outcome.answer)),
-                ("confidence", number(outcome.confidence)),
-                ("probabilities", probabilities(ids: options.map(\.id), from: outcome)),
-            ])
+            return object(
+                [("kind", string("choice"))] + answer(outcome) + [
+                    ("confidence", number(outcome.confidence)),
+                    ("probabilities", probabilities(ids: options.map(\.id), from: outcome)),
+                ]
+            )
         case .rating(let levels):
-            return object([
-                ("kind", string("rating")),
-                ("answer", string(outcome.answer)),
-                ("score", outcome.score.map(number) ?? "null"),
-                ("confidence", number(outcome.confidence)),
-                ("probabilities", probabilities(ids: levels.map(\.id), from: outcome)),
-            ])
+            return object(
+                [("kind", string("rating"))] + answer(outcome) + [
+                    ("score", outcome.score.map(number) ?? "null"),
+                    ("confidence", number(outcome.confidence)),
+                    ("probabilities", probabilities(ids: levels.map(\.id), from: outcome)),
+                ]
+            )
         case .verdict(let yes, let no):
-            return object([
-                ("kind", string("verdict")),
-                ("answer", string(outcome.answer)),
-                ("verdict", outcome.answer == yes.id ? "true" : "false"),
-                ("confidence", number(outcome.confidence)),
-                ("probabilities", probabilities(ids: [yes.id, no.id], from: outcome)),
-            ])
+            let verdict = outcome.unsure ? "null" : outcome.answer == yes.id ? "true" : "false"
+            return object(
+                [("kind", string("verdict"))] + answer(outcome) + [
+                    ("verdict", verdict),
+                    ("confidence", number(outcome.confidence)),
+                    ("probabilities", probabilities(ids: [yes.id, no.id], from: outcome)),
+                ]
+            )
         }
+    }
+
+    /// The `answer` pair, and for an unsure answer a null answer and then
+    /// `"unsure": true`.
+    private static func answer(_ outcome: Outcome) -> [(key: String, value: String)] {
+        guard outcome.unsure else { return [("answer", string(outcome.answer))] }
+        return [("answer", "null"), ("unsure", "true")]
     }
 
     /// The probabilities object, keyed by the ids in declared order. An id

@@ -26,8 +26,9 @@ targets are awkward.
 - `Sources/DecideCore/CommandLineParser.swift`, `UsageError.swift`: the
   parser. It is hand-written because the grammar interleaves questions with
   their own flags, which swift-argument-parser cannot express.
-- `Sources/DecideCore/Runner.swift`, `UnsureError.swift`: one questionnaire
-  for every question, one request, answers back in question order.
+- `Sources/DecideCore/Runner.swift`, `Unsure.swift`: one questionnaire for
+  every question, one request, answers back in question order, each marked
+  when it is below its bar.
 - `Sources/DecideCore/ModelConfiguration.swift`: `DECIDE_MODEL` and
   `DECIDE_MODEL_API_KEY` to a provider model.
 - `Sources/DecideCore/ConfigFile.swift`: the `.decide/config` format, a

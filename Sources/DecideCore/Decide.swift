@@ -30,8 +30,9 @@ public enum Decide {
           --yes <label>[=explanation]    Label and optional explanation for "yes"
           --no <label>[=explanation]     Label and optional explanation for "no"
           --min-confidence <n>           The confidence an answer needs, from 0 to 1. Below it
-                                         the run is unsure and exits 2. On a yes/no question, n
-                                         means P(yes) at least (1 + n) / 2 for yes.
+                                         the answer prints empty, the run exits 2, and stderr
+                                         names the question. On a yes/no question, n means
+                                         P(yes) at least (1 + n) / 2 for yes.
           --name <name>                  The question's name, an identifier: its id on the wire
                                          and in --json, and its line prints as name=answer.
           --stats                        Add a field to this question's line after a tab:
@@ -77,8 +78,10 @@ public enum Decide {
     /// `arguments` are the command line after the program name. A `model`
     /// replaces the one the environment names, so tests inject a scripted
     /// one. Answers go to `stdout`, one per line, unless the run is quiet;
-    /// everything else goes to `stderr`. Before it parses the line, it reads
-    /// each `--questions` file and puts its questions in the flag's place.
+    /// everything else goes to `stderr`. An answer below its bar prints
+    /// empty; the run reports it on `stderr` and exits 2 after every line has
+    /// printed. Before it parses the line, it reads each `--questions` file
+    /// and puts its questions in the flag's place.
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
@@ -176,6 +179,11 @@ public enum Decide {
             for (question, outcome) in zip(invocation.questions, outcomes) {
                 print(PlainOutput.line(for: question, outcome: outcome), to: &stdout)
             }
+        }
+        let unsure = Runner.unsureQuestions(in: invocation.questions, outcomes: outcomes)
+        guard unsure.isEmpty else {
+            print(Unsure.report(unsure), to: &stderr)
+            return ExitCode.unsure
         }
         return exitCode(for: outcomes, questions: invocation.questions)
     }

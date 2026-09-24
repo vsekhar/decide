@@ -29,8 +29,6 @@ public enum ExitCode {
             setup
         case is ConfigError:
             setup
-        case is UnsureError:
-            unsure
         case let error as DecisionError:
             code(for: error)
         default:
@@ -48,8 +46,6 @@ public enum ExitCode {
         case let error as ConfigError:
             oneLine(message(for: error))
         case let error as DecisionError:
-            oneLine(message(for: error))
-        case let error as UnsureError:
             oneLine(message(for: error))
         case is CancellationError:
             "Error: the run was cancelled."
@@ -143,16 +139,6 @@ public enum ExitCode {
         }
     }
 
-    /// Names every unsure question with its confidence and its bar.
-    private static func message(for error: UnsureError) -> String {
-        let clauses = error.questions.map { question in
-            "question \(question.number) (\"\(question.instructions)\") "
-                + "has confidence \(String(format: "%.2f", question.confidence)), "
-                + "below the bar of \(String(format: "%.2f", question.minimumConfidence))"
-        }
-        return "Error: unsure: " + clauses.joined(separator: "; ")
-    }
-
     private static func message(for reason: DecisionModelAvailability.Reason) -> String {
         switch reason {
         case .notConfigured(let what):
@@ -194,7 +180,7 @@ public enum ExitCode {
     }
 
     /// Turns every line break into a space, so one error prints on one line.
-    private static func oneLine(_ text: String) -> String {
+    static func oneLine(_ text: String) -> String {
         let scalars = text.unicodeScalars.map { scalar in
             CharacterSet.newlines.contains(scalar) ? " " : scalar
         }

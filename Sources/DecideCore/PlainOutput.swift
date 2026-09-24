@@ -10,12 +10,19 @@ import Foundation
 /// probability never holds a colon, so a split at the last colon always
 /// gives the number, whatever the id holds. The parser refuses an id that
 /// holds a tab, so no field of a line can split in two.
+///
+/// An answer below the question's `--min-confidence` bar prints as nothing,
+/// so the line is `name=` or empty. The fields after it are the model's
+/// numbers as they stand, and `probability:` is the probability of the
+/// answer the model would have given. The run exits 2 and names the
+/// question on stderr.
 public enum PlainOutput {
     /// The line for one answer, with no trailing newline: the caller prints
     /// it. `question` and `outcome` are one pair, as `Runner.decide` gives
     /// them.
     public static func line(for question: Question, outcome: Outcome) -> String {
-        var line = (question.name.map { "\($0)=" } ?? "") + outcome.answer
+        let answer = outcome.unsure ? "" : outcome.answer
+        var line = (question.name.map { "\($0)=" } ?? "") + answer
         guard question.detail != .answer else { return line }
         line +=
             "\t" + "confidence:" + number(outcome.confidence)

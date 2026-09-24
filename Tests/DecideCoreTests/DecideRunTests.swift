@@ -154,7 +154,7 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
-    @Test("A refund below its bar prints nothing and exits 2")
+    @Test("A refund below its bar prints an empty line after the other answers and exits 2")
     func unsureBatch() async {
         var out = ""
         var err = ""
@@ -169,11 +169,65 @@ struct DecideRunTests {
         )
 
         #expect(code == 2)
-        #expect(out.isEmpty)
+        #expect(out == "returns\nsomewhat_urgent\n\n")
         #expect(
             err == """
-                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
+                Unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
                 below the bar of 0.70
+
+                """
+        )
+    }
+
+    @Test("The README's Confidence bars example prints team=returns and refund= and exits 2")
+    func readmeConfidenceBars() async {
+        var out = ""
+        var err = ""
+
+        // The refund answer is P(yes) 0.87, confidence 0.74, below the bar of 0.90.
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
+                + ["Should we issue a refund?", "--name", "refund", "--min-confidence", "0.9"],
+            environment: [:],
+            model: Self.model(answering: [Self.teamAnswer, .verdict(probability: 0.87)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out == "team=returns\nrefund=\n")
+        #expect(
+            err == """
+                Unsure: question 2 ("Should we issue a refund?") has confidence 0.74, \
+                below the bar of 0.90
+
+                """
+        )
+    }
+
+    @Test("Two questions below their bars print empty lines and are both named on stderr")
+    func twoUnsureQuestions() async {
+        var out = ""
+        var err = ""
+
+        // The team answer has confidence 0.91 and the refund 0.20.
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion
+                + ["--min-confidence", "0.95"] + Self.urgencyQuestion
+                + Self.refundQuestion(bar: "0.7"),
+            environment: [:],
+            model: Self.unsureRefundModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out == "\nsomewhat_urgent\n\n")
+        #expect(
+            err == """
+                Unsure: question 1 ("Which team handles this ticket?") has confidence 0.91, \
+                below the bar of 0.95; question 3 ("Should we issue a refund?") has \
+                confidence 0.20, below the bar of 0.70
 
                 """
         )
@@ -426,7 +480,7 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
-    @Test("A named question below its bar prints nothing and exits 2")
+    @Test("A named question below its bar prints name= and exits 2")
     func namedUnsure() async {
         var out = ""
         var err = ""
@@ -441,7 +495,8 @@ struct DecideRunTests {
         )
 
         #expect(code == 2)
-        #expect(out.isEmpty)
+        #expect(out == "spam=\n")
+        #expect(err.hasPrefix("Unsure: question 1 "))
     }
 
     @Test("--name with -q prints nothing and answers with the exit code")
@@ -579,7 +634,7 @@ struct DecideRunTests {
         #expect(model.callCount == 0)
     }
 
-    @Test("A question with --distribution below its bar prints nothing and exits 2")
+    @Test("A question with --distribution below its bar prints its fields after an empty answer")
     func distributionUnsure() async {
         var out = ""
         var err = ""
@@ -594,7 +649,22 @@ struct DecideRunTests {
         )
 
         #expect(code == 2)
-        #expect(out.isEmpty)
+        #expect(out == "\tconfidence:0.600 probability:0.800\tyes:0.800\tno:0.200\n")
+        #expect(err.hasPrefix("Unsure: question 1 "))
+    }
+
+    @Test("The usage text says an answer below its bar prints empty")
+    func usageListsTheBar() {
+        #expect(
+            Decide.usage.contains(
+                """
+                  --min-confidence <n>           The confidence an answer needs, from 0 to 1. Below it
+                                                 the answer prints empty, the run exits 2, and stderr
+                                                 names the question. On a yes/no question, n means
+                                                 P(yes) at least (1 + n) / 2 for yes.
+                """
+            )
+        )
     }
 
     @Test("The usage text lists --stats and --distribution")
@@ -690,7 +760,7 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
-    @Test("An unsure run with --json prints nothing")
+    @Test("An unsure run with --json prints a null answer for the unsure question and exits 2")
     func jsonUnsure() async {
         var out = ""
         var err = ""
@@ -705,7 +775,26 @@ struct DecideRunTests {
         )
 
         #expect(code == 2)
-        #expect(out.isEmpty)
+        #expect(
+            out == """
+                {"q1":{"kind":"choice","answer":"returns","confidence":0.91,\
+                "probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},\
+                "q2":{"kind":"rating","answer":"somewhat_urgent","score":1.15,\
+                "confidence":0.78,"probabilities":{"not_urgent":0.15,\
+                "somewhat_urgent":0.55,"urgent":0.3}},\
+                "q3":{"kind":"verdict","answer":null,"unsure":true,"verdict":null,\
+                "confidence":\(AnswerRecord.verdict(probability: 0.6).confidence),\
+                "probabilities":{"Yes":0.6,"No":0.4}}}
+
+                """
+        )
+        #expect(
+            err == """
+                Unsure: question 3 ("Should we issue a refund?") has confidence 0.20, \
+                below the bar of 0.70
+
+                """
+        )
     }
 
     @Test("--json with -q exits 10 with the usage text")
@@ -857,7 +946,7 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
-    @Test("A yes/no answer below its bar exits 2 and prints nothing")
+    @Test("A yes/no answer below its bar prints an empty line and exits 2")
     func unsureVerdict() async {
         var out = ""
         var err = ""
@@ -872,10 +961,54 @@ struct DecideRunTests {
         )
 
         #expect(code == 2)
+        #expect(out == "\n")
+        #expect(
+            err == """
+                Unsure: question 1 ("Is this message spam?") has confidence 0.60, \
+                below the bar of 0.90
+
+                """
+        )
+    }
+
+    @Test("A yes/no answer that would be no but is below its bar exits 2, not 1")
+    func unsureVerdictNo() async {
+        var out = ""
+        var err = ""
+
+        // P(yes) 0.2 is no at confidence 0.60, below the bar of 0.90.
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--min-confidence", "0.9"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.2),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out == "\n")
+        #expect(err.hasPrefix("Unsure: question 1 "))
+    }
+
+    @Test("-q with a yes/no answer below its bar prints nothing on stdout and exits 2")
+    func quietUnsureVerdict() async {
+        var out = ""
+        var err = ""
+
+        // P(yes) 0.8 is confidence 0.60, below the bar of 0.90.
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--min-confidence", "0.9", "-q"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
         #expect(out.isEmpty)
         #expect(
             err == """
-                Error: unsure: question 1 ("Is this message spam?") has confidence 0.60, \
+                Unsure: question 1 ("Is this message spam?") has confidence 0.60, \
                 below the bar of 0.90
 
                 """
@@ -1958,7 +2091,7 @@ struct DecideRunTests {
         #expect(model.callCount == 0)
     }
 
-    @Test("A JSON file's refund below the file's bar prints nothing and exits 2")
+    @Test("A JSON file's refund below the file's bar prints refund= and exits 2")
     func jsonFileUnsure() async throws {
         let path = try Self.questionFile(readmeTriageJSON)
         defer { try? FileManager.default.removeItem(atPath: path) }
@@ -1977,10 +2110,10 @@ struct DecideRunTests {
         )
 
         #expect(code == 2)
-        #expect(out.isEmpty)
+        #expect(out == "team=returns\nurgency=somewhat_urgent\nrefund=\n")
         #expect(
             err == """
-                Error: unsure: question 3 ("Should we issue a refund?") has confidence 0.60, \
+                Unsure: question 3 ("Should we issue a refund?") has confidence 0.60, \
                 below the bar of 0.70
 
                 """

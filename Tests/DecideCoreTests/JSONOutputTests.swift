@@ -228,6 +228,73 @@ struct JSONOutputTests {
         #expect(!verdict.contains("\"score\""))
     }
 
+    /// The outcome as `Runner.decide` gives it for an answer below its bar:
+    /// the same numbers, marked unsure.
+    static func unsure(_ outcome: Outcome) -> Outcome {
+        var outcome = outcome
+        outcome.unsure = true
+        return outcome
+    }
+
+    @Test("An unsure choice prints a null answer, then unsure, then the model's numbers")
+    func unsureChoice() {
+        let line = JSONOutput.line(
+            for: [Self.teamQuestion], outcomes: [Self.unsure(Self.teamOutcome)]
+        )
+        #expect(
+            line == """
+                {"q1":{"kind":"choice","answer":null,"unsure":true,"confidence":0.91,\
+                "probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}}}
+
+                """
+        )
+    }
+
+    @Test("An unsure rating prints unsure before its score")
+    func unsureRating() {
+        let line = JSONOutput.line(
+            for: [Self.urgencyQuestion], outcomes: [Self.unsure(Self.urgencyOutcome)]
+        )
+        #expect(
+            line == """
+                {"q2":{"kind":"rating","answer":null,"unsure":true,"score":1.2,"confidence":0.78,\
+                "probabilities":{"not_urgent":0.15,"somewhat_urgent":0.55,"urgent":0.3}}}
+
+                """
+        )
+    }
+
+    @Test("An unsure verdict prints a null answer and a null verdict")
+    func unsureVerdict() {
+        let line = JSONOutput.line(
+            for: [Self.refundQuestion], outcomes: [Self.unsure(Self.refundOutcome)]
+        )
+        #expect(
+            line == """
+                {"q3":{"kind":"verdict","answer":null,"unsure":true,"verdict":null,\
+                "confidence":0.74,"probabilities":{"Yes":0.87,"No":0.13}}}
+
+                """
+        )
+    }
+
+    @Test("A sure answer beside an unsure one prints no unsure key")
+    func sureBesideUnsure() {
+        let line = JSONOutput.line(
+            for: [Self.teamQuestion, Self.refundQuestion],
+            outcomes: [Self.teamOutcome, Self.unsure(Self.refundOutcome)]
+        )
+        #expect(
+            line == """
+                {"q1":{"kind":"choice","answer":"returns","confidence":0.91,\
+                "probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},\
+                "q3":{"kind":"verdict","answer":null,"unsure":true,"verdict":null,\
+                "confidence":0.74,"probabilities":{"Yes":0.87,"No":0.13}}}
+
+                """
+        )
+    }
+
     @Test("The line ends with one newline")
     func oneNewline() {
         let line = JSONOutput.line(
