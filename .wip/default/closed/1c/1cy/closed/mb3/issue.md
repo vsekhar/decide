@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T23:36:43-04:00
-updated: 2026-09-23T23:43:47-04:00
+updated: 2026-09-24T00:26:14-04:00
 blocked-on:
   - hcp
 ---
@@ -114,3 +114,15 @@ Parent wip/1cy. Blocked on wip/hcp, which prints the `name=` head and settles th
 _📝 Noted on 2026-09-23 23:43:47-04:00 @ git:e1da41d+local_
 
 Design record additions at start (2026-09-23), beyond the description: (1) option(from:as:) refuses an id holding a tab, a line feed, or a carriage return; the message says 'tab or newline'. (2) PlainOutput imports Foundation for String(format: "%.3f", value), which takes no locale and so always prints a dot. (3) TESTING.md's suite list gains PlainOutput. (4) Parser placement: the two bare flags are handled beside --min-confidence with the same 'before any question' and 'repeats' errors; the --quiet conflict check sits where the old --show-names/--quiet check sat, after the name and context checks and before the one-yes/no-question rule; a question that asked for both flags names --distribution in the message. (5) PlainOutput owns the whole line, head included, so Decide.run's loop is one call. (6) JSONOutputTests' fixtures (score 1.2) are the exemplar for PlainOutputTests; DecideRunTests' scripted model (score 1.15) drives the run tests, so the run-level expected strings use 1.150.
+
+---
+
+_📝 Noted on 2026-09-24 00:00:19-04:00 @ git:f6a434e+local_
+
+Decisions at start, second batch (2026-09-23), after hcp landed as f6a434e: (7) The usage header gains one sentence after '--yes and --no set what it prints.': '--name, --stats, and --distribution add to that line.' (8) The whitespace check covers the id only, not the description, and its message is worded per flag like missingID: 'an --option id holds a tab or newline', 'a --level id ...', 'a --yes value ...', 'a --no value ...'. (9) Parser messages: '--stats before any question', 'question 2 ("...") repeats --stats', '--stats does not go with --quiet', and the same three with --distribution. (10) The README example goes under Scripting right after the name=answer example and before the exit-code example, with real tab characters in the block.
+
+---
+
+_📝 Noted on 2026-09-24 00:26:14-04:00 @ git:f6a434e+local_
+
+Summary (2026-09-24): done. --stats and --distribution are per-question flags; PlainOutput.line owns the whole plain line ([name=]answer, the stats field, one tab field per entry), Question.detail carries the choice, the parser refuses a tab or newline in an id, --json ignores the flags and --quiet refuses them, usage and README updated, TESTING.md lists PlainOutput. 348 offline tests and the 4 live tests pass. Verifier: all five criteria hold, no blockers; it also proved the format ignores the locale under de_DE. Acted on its should-fix (the README paragraph now says confidence and probability differ on every kind, not only yes/no) and three notes: the README's question-file --json example now shows score 1.15, the value its probabilities give and the value the run test pins; PlainOutput.number's doc records the library's finite, non-negative guarantee; detailWithQuiet gained the both-flags case (mutant on the ternary proved it) and the --json-first case. Left as observed: printed distribution fields can sum to 0.999 or 1.020 after rounding, which is what three decimals means; a script that sums must use --json.

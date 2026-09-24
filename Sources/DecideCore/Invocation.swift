@@ -101,19 +101,24 @@ public struct Question: Sendable, Equatable {
     /// Rules the model applies with the question, from a JSON file's
     /// structured instructions. Empty for a plain question.
     public var rules: [String]
+    /// What the question's line shows beyond its answer, from `--stats` and
+    /// `--distribution`. `.distribution` includes `.stats`.
+    public var detail: Detail
 
     public init(
         instructions: String,
         kind: Kind,
         minimumConfidence: Double? = nil,
         name: String? = nil,
-        rules: [String] = []
+        rules: [String] = [],
+        detail: Detail = .answer
     ) {
         self.instructions = instructions
         self.kind = kind
         self.minimumConfidence = minimumConfidence
         self.name = name
         self.rules = rules
+        self.detail = detail
     }
 
     /// The kind of question. The flags after the question decide it:
@@ -129,6 +134,19 @@ public struct Question: Sendable, Equatable {
         /// least 0.5, else the no value. A side's description, when given, is
         /// what counts as that side.
         case verdict(yes: Option, no: Option)
+    }
+
+    /// How much of an answer a question's line shows. The flags after the
+    /// question choose it.
+    public enum Detail: Sendable, Equatable {
+        /// The answer alone, which a question with neither flag prints.
+        case answer
+        /// The answer and its numbers: the confidence, the answer's
+        /// probability, and a rating's score, from `--stats`.
+        case stats
+        /// The numbers, then the probability of every option, level, or
+        /// side, from `--distribution`.
+        case distribution
     }
 }
 

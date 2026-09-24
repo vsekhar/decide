@@ -43,9 +43,13 @@ public enum CommandLineParser {
     /// yes/no question; `--yes` and `--no` set what it prints.
     /// `--min-confidence` after a question sets the confidence its answer
     /// needs. `--name` after a question gives it a name, an identifier that
-    /// is unique in the run; its line prints as `name=answer`. `--quiet`
-    /// or `-q` keeps the one yes/no question's answer off stdout. `--json`
-    /// prints the answers as one JSON object, and does not go with
+    /// is unique in the run; its line prints as `name=answer`. `--stats`
+    /// after a question adds its numbers to its line, and `--distribution`
+    /// adds those and one field per option, level, or side; neither goes
+    /// with `--quiet`. An `--option`, `--level`, `--yes`, or `--no` id holds
+    /// no tab or newline: a tab separates the fields those two flags add.
+    /// `--quiet` or `-q` keeps the one yes/no question's answer off stdout.
+    /// `--json` prints the answers as one JSON object, and does not go with
     /// `--quiet`. `--context` is optional; without it the questions run
     /// with no state. A `--context` whose value starts with a name and `=` is
     /// a named context, and the model sees every named context as one field
@@ -137,6 +141,11 @@ public enum CommandLineParser {
                 continue
             }
 
+            if let flag = DetailFlag(rawValue: token) {
+                try setDetail(flag, to: &questions)
+                continue
+            }
+
             if token == "--project" { throw UsageError("--project needs --set-config") }
 
             if token.hasPrefix("-") { throw UsageError("unknown flag: \(token)") }
@@ -158,6 +167,14 @@ public enum CommandLineParser {
         let context = try Self.context(from: contexts)
 
         if json && quiet { throw UsageError("--json does not go with --quiet") }
+
+        if quiet, let detailed = finished.first(where: { $0.detail != .answer }) {
+            throw UsageError(
+                detailed.detail == .distribution
+                    ? "--distribution does not go with --quiet"
+                    : "--stats does not go with --quiet"
+            )
+        }
 
         if quiet {
             guard finished.count == 1, case .verdict = finished[0].kind else {
@@ -250,7 +267,8 @@ public enum CommandLineParser {
     /// two sides of a yes/no question in any order, so a repeat of either flag
     /// is its own error. `minimumConfidence` is the bar `--min-confidence`
     /// sets, on a question of any kind. `name` is the identifier `--name`
-    /// gives it, or nil.
+    /// gives it, or nil. `stats` and `distribution` are the two flags that
+    /// add to its line.
     private struct QuestionBuilder {
         let instructions: String
         var flag: KindFlag?
@@ -259,10 +277,18 @@ public enum CommandLineParser {
         var no: Option?
         var minimumConfidence: Double?
         var name: String?
+        var stats = false
+        var distribution = false
 
         /// How a message names this question: its number and its text.
         func label(_ number: Int) -> String {
             "question \(number) (\"\(instructions)\")"
+        }
+
+        /// What the question's line shows. `--distribution` wins over
+        /// `--stats`, because it holds the stats.
+        var detail: Question.Detail {
+            distribution ? .distribution : (stats ? .stats : .answer)
         }
 
         /// The finished question. A question with no kind flag is a yes/no
@@ -281,7 +307,8 @@ public enum CommandLineParser {
                     instructions: instructions,
                     kind: .choice(values),
                     minimumConfidence: minimumConfidence,
-                    name: name
+                    name: name,
+                    detail: detail
                 )
             case .level:
                 guard values.count >= 2 else {
@@ -291,7 +318,8 @@ public enum CommandLineParser {
                     instructions: instructions,
                     kind: .rating(values),
                     minimumConfidence: minimumConfidence,
-                    name: name
+                    name: name,
+                    detail: detail
                 )
             case .yes, .no:
                 return try verdict(number: number)
@@ -311,7 +339,8 @@ public enum CommandLineParser {
                 instructions: instructions,
                 kind: .verdict(yes: yesSide, no: noSide),
                 minimumConfidence: minimumConfidence,
-                name: name
+                name: name,
+                detail: detail
             )
         }
     }
@@ -361,6 +390,33 @@ public enum CommandLineParser {
             case .level: "a --level has no id"
             case .yes: "a --yes has no value"
             case .no: "a --no has no value"
+            }
+        }
+
+        /// What an id holding a tab or a newline reports. The wording
+        /// differs by flag, as `missingID`'s does.
+        var idHasWhitespace: String {
+            switch self {
+            case .option: "an --option id holds a tab or newline"
+            case .level: "a --level id holds a tab or newline"
+            case .yes: "a --yes value holds a tab or newline"
+            case .no: "a --no value holds a tab or newline"
+            }
+        }
+    }
+
+    /// A flag that adds to a question's line. `--stats` adds the answer's
+    /// numbers, and `--distribution` adds those and the probability of every
+    /// option, level, or side.
+    private enum DetailFlag: String {
+        case stats = "--stats"
+        case distribution = "--distribution"
+
+        /// The builder field this flag sets.
+        var field: WritableKeyPath<QuestionBuilder, Bool> {
+            switch self {
+            case .stats: \.stats
+            case .distribution: \.distribution
             }
         }
     }
@@ -438,6 +494,22 @@ public enum CommandLineParser {
             )
         }
         questions[last].name = value
+    }
+
+    /// Marks the last question for `--stats` or `--distribution`. Every kind
+    /// takes either flag, and each question takes each one once. Both flags
+    /// on one question ask for the distribution, which holds the stats.
+    private static func setDetail(
+        _ flag: DetailFlag,
+        to questions: inout [QuestionBuilder]
+    ) throws(UsageError) {
+        guard let last = questions.indices.last else {
+            throw UsageError("\(flag.rawValue) before any question")
+        }
+        guard !questions[last][keyPath: flag.field] else {
+            throw UsageError("\(questions[last].label(last + 1)) repeats \(flag.rawValue)")
+        }
+        questions[last][keyPath: flag.field] = true
     }
 
     /// Refuses a name that two questions share. Names are the ids the
@@ -553,12 +625,24 @@ public enum CommandLineParser {
     /// none.
     private static func option(from value: String, as flag: KindFlag) throws(UsageError) -> Option {
         guard let separator = value.firstIndex(of: "=") else {
-            guard !value.isEmpty else { throw UsageError(flag.missingID) }
-            return Option(id: value)
+            return Option(id: try checkedID(value, as: flag))
         }
-        let id = String(value[value.startIndex..<separator])
-        guard !id.isEmpty else { throw UsageError(flag.missingID) }
+        let id = try checkedID(String(value[value.startIndex..<separator]), as: flag)
         let description = String(value[value.index(after: separator)...])
         return Option(id: id, description: description.isEmpty ? nil : description)
+    }
+
+    /// The id of an `--option`, `--level`, `--yes`, or `--no` value, checked.
+    /// An empty id is an error, and so is one holding a tab, a line feed, or
+    /// a carriage return: a tab separates the fields of a line with `--stats`
+    /// or `--distribution`, and a newline ends the line. The description
+    /// takes any text.
+    private static func checkedID(_ id: String, as flag: KindFlag) throws(UsageError) -> String {
+        guard !id.isEmpty else { throw UsageError(flag.missingID) }
+        let forbidden: Set<Unicode.Scalar> = ["\t", "\n", "\r"]
+        guard !id.unicodeScalars.contains(where: forbidden.contains) else {
+            throw UsageError(flag.idHasWhitespace)
+        }
+        return id
     }
 }

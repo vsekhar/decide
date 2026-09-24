@@ -471,6 +471,142 @@ struct DecideRunTests {
         #expect(Decide.usage.contains("and its line prints as name=answer."))
     }
 
+    @Test("The README example prints the distribution, then the stats, then an answer")
+    func statsAndDistributionExample() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
+                + ["--distribution"] + Self.urgencyQuestion + ["--stats"]
+                + Self.plainRefundQuestion + ["--name", "refund"],
+            environment: [:],
+            model: Self.model(
+                answering: [Self.teamAnswer, Self.urgencyAnswer, .verdict(probability: 0.87)]
+            ),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == "team=returns\tconfidence:0.910 probability:0.910"
+                + "\tshipping:0.060\tbilling:0.030\treturns:0.910\n"
+                + "somewhat_urgent\tconfidence:0.780 probability:0.550 score:1.150\n"
+                + "refund=yes\n"
+        )
+        #expect(err.isEmpty)
+    }
+
+    @Test("--distribution keys a verdict by its own values, yes side first")
+    func distributionOnCustomValues() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: [
+                "--context", "some ticket text",
+                "Should we issue a refund?", "--yes", "Hell yeah", "--no", "Forget it",
+                "--distribution",
+            ],
+            environment: [:],
+            model: Self.model(answering: [.verdict(probability: 0.87)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == "Hell yeah\tconfidence:0.740 probability:0.870"
+                + "\tHell yeah:0.870\tForget it:0.130\n"
+        )
+        #expect(err.isEmpty)
+    }
+
+    @Test("--json with --stats prints the JSON line unchanged")
+    func jsonIgnoresStats() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.teamQuestion + ["--stats"]
+                + Self.urgencyQuestion + Self.refundQuestion + ["--json"],
+            environment: [:],
+            model: Self.triageModel(),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == """
+                {"q1":{"kind":"choice","answer":"returns","confidence":0.91,\
+                "probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},\
+                "q2":{"kind":"rating","answer":"somewhat_urgent","score":1.15,\
+                "confidence":0.78,"probabilities":{"not_urgent":0.15,\
+                "somewhat_urgent":0.55,"urgent":0.3}},\
+                "q3":{"kind":"verdict","answer":"Yes","verdict":true,"confidence":0.74,\
+                "probabilities":{"Yes":0.87,"No":0.13}}}
+
+                """
+        )
+        #expect(err.isEmpty)
+    }
+
+    @Test("--stats with -q exits 10 with the usage text")
+    func statsWithQuiet() async {
+        let model = Self.spamModel(probability: 0.8)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--stats", "-q"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.hasPrefix("Error: --stats does not go with --quiet"))
+        #expect(err.contains(Decide.usage))
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A question with --distribution below its bar prints nothing and exits 2")
+    func distributionUnsure() async {
+        var out = ""
+        var err = ""
+
+        // P(yes) 0.8 is confidence 0.60, below the bar of 0.90.
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--distribution", "--min-confidence", "0.9"],
+            environment: [:],
+            model: Self.model(answering: [.verdict(probability: 0.8)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out.isEmpty)
+    }
+
+    @Test("The usage text lists --stats and --distribution")
+    func usageListsTheDetailFlags() {
+        #expect(
+            Decide.usage.contains(
+                "  --stats                        Add a field to this question's line after a tab:"
+            )
+        )
+        #expect(
+            Decide.usage.contains(
+                "  --distribution                 --stats, then one field per option, level, or side"
+            )
+        )
+        #expect(Decide.usage.contains("\n--name, --stats, and --distribution add to that line.\n"))
+    }
+
     @Test("The batch example with --json prints one keyed line")
     func jsonBatch() async {
         var out = ""

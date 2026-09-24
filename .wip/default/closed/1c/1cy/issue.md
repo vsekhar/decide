@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-23T23:36:43-04:00
-updated: 2026-09-23T23:36:43-04:00
+updated: 2026-09-24T00:26:14-04:00
 ---
 
 # Per-question output: --name prints name=answer, --stats and --distribution add tab fields, --show-names goes away
@@ -48,3 +48,9 @@ The formatter is pure over `Question` and `Outcome` and tested alone. The parser
 | wip/mb3 | --stats and --distribution: per-question tab fields with confidence, probability, score, and id:probability entries | wip/hcp |
 
 Start with wip/hcp; it is small and frees the print loop.
+
+---
+
+_📝 Noted on 2026-09-24 00:26:14-04:00 @ git:f6a434e+local_
+
+Summary (2026-09-24): both children landed. hcp (f6a434e): a named question prints name=answer, --show-names removed. mb3: --stats and --distribution per question, PlainOutput formatter, id whitespace rule. The question-file issues qsk, qc4, and hah were amended at filing. Scope of the title is met; nothing left open here.

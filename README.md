@@ -180,7 +180,7 @@ $ decide --context ticket=@ticket.txt \
          --questions @triage.json \
          --json
 {"team":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},
- "urgency":{"kind":"rating","answer":"somewhat_urgent","score":1.2,"confidence":0.78,"probabilities":{"not_urgent":0.15,"somewhat_urgent":0.55,"urgent":0.3}},
+ "urgency":{"kind":"rating","answer":"somewhat_urgent","score":1.15,"confidence":0.78,"probabilities":{"not_urgent":0.15,"somewhat_urgent":0.55,"urgent":0.3}},
  "refund":{"kind":"verdict","answer":"Yes","verdict":true,"confidence":0.74,"probabilities":{"Yes":0.87,"No":0.13}}}
 ```
 
@@ -206,6 +206,36 @@ $ decide --context @ticket.txt \
 team=returns
 yes
 
+# --stats adds a tab-separated field of confidence, probability, and a rating's score;
+# --distribution adds that, then one field per option, level, or side. Both are per question.
+$ decide --context @ticket.txt \
+     "Which team handles this ticket?" --name team \
+         --option shipping --option billing --option returns \
+         --distribution \
+     "How urgent is this ticket?" \
+         --level not_urgent --level somewhat_urgent --level urgent \
+         --stats \
+     "Should we issue a refund?" --name refund
+team=returns	confidence:0.910 probability:0.910	shipping:0.060	billing:0.030	returns:0.910
+somewhat_urgent	confidence:0.780 probability:0.550 score:1.150
+refund=yes
+
+# Fields are tab-separated; values inside the stats field are space-separated
+$ decide ... --stats | cut -f2 | cut -d' ' -f1 | cut -d: -f2                          # confidence
+$ decide ... --distribution | cut -f3- | tr '\t' '\n'                                    # one entry per line
+$ decide ... --distribution | cut -f3- | tr '\t' '\n' | grep '^billing:' | cut -d: -f2   # one by name
+```
+
+The confidence and the probability are two different numbers on every kind of
+question. The confidence is the number `--min-confidence` tests, and it comes
+from the whole distribution. The probability is the chosen answer's alone. On a
+yes/no question the confidence is `|2p - 1|` and the probability is the chosen
+side's. A level's index counts from 0 in declared order, and a rating's score
+is the expected index. Numbers print with three decimals; `--json` prints the
+exact value, and for the whole distribution by name `--json` and `jq` are the
+shorter path.
+
+```sh
 # Branch in a script via exit codes (-q suppresses printed output)
 if decide --context="$body" "Is this message spam?" -q; then
   mv "$file" spam/

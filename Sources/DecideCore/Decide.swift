@@ -13,6 +13,7 @@ public enum Decide {
         The answer to each question prints on its own line: the id of the chosen
         option or level, or yes or no. A question with no --option or --level is
         a yes/no question; --yes and --no set what it prints.
+        --name, --stats, and --distribution add to that line.
 
           --context <text>               Optional context for question(s).
           --context @<path>              Context from file.
@@ -29,6 +30,15 @@ public enum Decide {
                                          means P(yes) at least (1 + n) / 2 for yes.
           --name <name>                  The question's name, an identifier: its id on the wire
                                          and in --json, and its line prints as name=answer.
+          --stats                        Add a field to this question's line after a tab:
+                                         confidence:<n> probability:<n>, and for a rating
+                                         score:<n>, its expected level index. Levels count
+                                         from 0 in declared order. Three decimals; the
+                                         --min-confidence bar tests the exact value.
+                                         Not with --quiet.
+          --distribution                 --stats, then one field per option, level, or side
+                                         as id:probability, in declared order; a level as
+                                         id[index]:probability. Not with --quiet.
           --quiet, -q                    Print no answer. Only with one yes/no question.
           --json                         Print one JSON object keyed by question name, with
                                          each answer's kind, confidence, and probabilities.
@@ -155,8 +165,7 @@ public enum Decide {
             print(line, terminator: "", to: &stdout)
         } else if !invocation.quiet {
             for (question, outcome) in zip(invocation.questions, outcomes) {
-                let line = (question.name.map { "\($0)=" } ?? "") + outcome.answer
-                print(line, to: &stdout)
+                print(PlainOutput.line(for: question, outcome: outcome), to: &stdout)
             }
         }
         return exitCode(for: outcomes, questions: invocation.questions)

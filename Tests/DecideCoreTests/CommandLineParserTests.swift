@@ -765,6 +765,30 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("An id with a tab or a newline is an error that names the flag")
+    func idWithATabOrNewline() {
+        let flags = [
+            ("--option", "an --option id holds a tab or newline"),
+            ("--level", "a --level id holds a tab or newline"),
+            ("--yes", "a --yes value holds a tab or newline"),
+            ("--no", "a --no value holds a tab or newline"),
+        ]
+        for (flag, message) in flags {
+            for value in ["a\tb", "a\nb", "a\r\nb", "a\tb=desc"] {
+                let error = #expect(throws: UsageError.self) {
+                    try CommandLineParser.parse(["--context", "c", "Q", flag, value])
+                }
+                #expect(error?.message == message, "\(flag) \(value.debugDescription)")
+            }
+        }
+    }
+
+    @Test("A description with a tab is allowed")
+    func descriptionWithATab() throws {
+        let result = try CommandLineParser.parse(["--context", "c", "Q", "--option", "a=one\ttwo"])
+        #expect(result == .run(invocation(Option(id: "a", description: "one\ttwo"))))
+    }
+
     @Test("--min-confidence sets the bar, in either value form")
     func minimumConfidenceForms() throws {
         for tokens in [["--min-confidence", "0.7"], ["--min-confidence=0.7"]] {
@@ -1012,6 +1036,137 @@ struct CommandLineParserTests {
                                 name: "c"
                             ),
                         ]
+                    )
+                )
+        )
+    }
+
+    @Test("--stats and --distribution each set the question's detail")
+    func detailFlags() throws {
+        for (token, detail) in [
+            ("--stats", Question.Detail.stats), ("--distribution", .distribution),
+        ] {
+            let result = try CommandLineParser.parse(["Q", "--option", "a", token])
+            #expect(
+                result
+                    == .run(
+                        Invocation(
+                            context: nil,
+                            questions: [
+                                Question(
+                                    instructions: "Q",
+                                    kind: .choice([Option(id: "a")]),
+                                    detail: detail
+                                )
+                            ]
+                        )
+                    ),
+                "\(token)"
+            )
+        }
+    }
+
+    @Test("--stats or --distribution before any question is an error")
+    func detailBeforeQuestion() {
+        #expect(throws: UsageError("--stats before any question")) {
+            try CommandLineParser.parse(["--stats", "Q"])
+        }
+        #expect(throws: UsageError("--distribution before any question")) {
+            try CommandLineParser.parse(["--distribution", "Q"])
+        }
+    }
+
+    @Test("A second --stats or --distribution on one question is an error")
+    func repeatedDetail() {
+        for token in ["--stats", "--distribution"] {
+            let error = #expect(throws: UsageError.self) {
+                try CommandLineParser.parse(["Q", token, token])
+            }
+            #expect(error?.message == "question 1 (\"Q\") repeats \(token)", "\(token)")
+        }
+    }
+
+    @Test("Both flags on one question ask for the distribution")
+    func bothDetailFlags() throws {
+        for line in [["Q", "--stats", "--distribution"], ["Q", "--distribution", "--stats"]] {
+            let result = try CommandLineParser.parse(line)
+            #expect(
+                result
+                    == .run(
+                        Invocation(
+                            context: nil,
+                            questions: [
+                                Question(
+                                    instructions: "Q",
+                                    kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no")),
+                                    detail: .distribution
+                                )
+                            ]
+                        )
+                    ),
+                "\(line)"
+            )
+        }
+    }
+
+    @Test("A flag on the second question leaves the first with its answer alone")
+    func detailBelongsToItsQuestion() throws {
+        let result = try CommandLineParser.parse([
+            "Q1", "--option", "a", "Q2", "--option", "b", "--distribution",
+        ])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(instructions: "Q1", kind: .choice([Option(id: "a")])),
+                            Question(
+                                instructions: "Q2",
+                                kind: .choice([Option(id: "b")]),
+                                detail: .distribution
+                            ),
+                        ]
+                    )
+                )
+        )
+    }
+
+    @Test("--stats or --distribution with -q is an error in either order")
+    func detailWithQuiet() {
+        let lines = [
+            (["Q?", "--stats", "-q"], "--stats does not go with --quiet"),
+            (["Q?", "-q", "--stats"], "--stats does not go with --quiet"),
+            (["Q?", "--distribution", "-q"], "--distribution does not go with --quiet"),
+            (["Q?", "-q", "--distribution"], "--distribution does not go with --quiet"),
+            // Both flags ask for the distribution, so the message names it.
+            (["Q?", "--stats", "--distribution", "-q"], "--distribution does not go with --quiet"),
+            // The --json conflict is checked first.
+            (["Q?", "--stats", "--json", "-q"], "--json does not go with --quiet"),
+        ]
+        for (line, message) in lines {
+            #expect(throws: UsageError(message), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("--stats with --json parses")
+    func detailWithJSON() throws {
+        let result = try CommandLineParser.parse(["Q", "--option", "a", "--stats", "--json"])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "Q",
+                                kind: .choice([Option(id: "a")]),
+                                detail: .stats
+                            )
+                        ],
+                        json: true
                     )
                 )
         )
