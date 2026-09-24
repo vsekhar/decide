@@ -12,11 +12,8 @@ public struct Invocation: Sendable, Equatable {
     /// Print no answer, from `--quiet`. Only a run with one yes/no question
     /// may set it; the exit code carries the answer then.
     public var quiet: Bool
-    /// Print each answer as `name=answer`, from `--show-names`. Never with
-    /// `quiet`.
-    public var showNames: Bool
     /// Print the answers as one JSON object, from `--json`. Never with
-    /// `quiet` or `showNames`.
+    /// `quiet`.
     public var json: Bool
     /// The model for this run from `--model`, or nil to use the environment
     /// and the config files.
@@ -29,7 +26,6 @@ public struct Invocation: Sendable, Equatable {
         context: Context?,
         questions: [Question],
         quiet: Bool = false,
-        showNames: Bool = false,
         json: Bool = false,
         model: String? = nil,
         apiKey: String? = nil
@@ -37,7 +33,6 @@ public struct Invocation: Sendable, Equatable {
         self.context = context
         self.questions = questions
         self.quiet = quiet
-        self.showNames = showNames
         self.json = json
         self.model = model
         self.apiKey = apiKey

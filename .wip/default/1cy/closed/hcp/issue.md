@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T23:36:33-04:00
-updated: 2026-09-23T23:36:43-04:00
+updated: 2026-09-23T23:59:54-04:00
 may-unblock:
   - mb3
 ---
@@ -74,3 +74,15 @@ Parent wip/1cy. wip/3tz added the flag; wip/byu added `--name`; wip/4qk's `--jso
 - [ ] `--show-names` is an unknown flag; `Invocation` has no `showNames`.
 - [ ] `--help` and the README show the new `--name` behaviour and no `--show-names`.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 23:42:38-04:00 @ git:e1da41d+local_
+
+Design record for the implementer and verifier (2026-09-23). The description is the spec; decisions made at start: (1) README Usage example comment becomes '# Name questions; a named question prints as name=answer', output team=returns / refund=yes; the JSON question file example's plain output becomes team=returns / urgency=somewhat_urgent / refund=Yes with its blank line kept. (2) Every --show-names mention to remove, at filing: Decide.swift:33-37 (usage entries), Decide.swift:160 (print loop); Invocation.swift:15-19,32,40; CommandLineParser.swift:47-50 (doc), 71, 87-89, 168, 172, 185; CommandLineParserTests.swift:1092-1150 (five showNames tests) and 1196-1206 (--json/--show-names conflict); DecideRunTests.swift:319-400 (showNamesBatch, showNamesVerdict, showNamesUnsure, showNamesWithQuiet, usageListsShowNames) and 603-615 (showNamesNamedQuestion); README.md:201-208. (3) The print loop stays one expression in Decide.run; wip/mb3 moves it into PlainOutput.
+
+---
+
+_📝 Noted on 2026-09-23 23:59:54-04:00 @ git:e1da41d+local_
+
+Summary (2026-09-23): done. A named question prints name=answer; an unnamed one prints its answer alone; --show-names, Invocation.showNames, and both conflict checks are gone; the parser's --name doc sentence and the usage entry say what --name prints; README's three examples changed. Tests: showNames* replaced by namedAndUnnamedLines, namedBatch, mixedNamesInQuestionOrder, namedVerdictNo, namedUnsure, namedQuietVerdict, usageDropsShowNames, showNamesIsUnknown; DecideRunTests gained model(answering:) which keys records by the ids the request asks, plus teamAnswer, urgencyAnswer, plainRefundQuestion. Verifier: all four criteria hold, no blockers; ran the binary live on a five-question mix. Acted on its one should-fix: usageDropsShowNames now pins the second --name line (mutant on Decide.swift's line proved it fails); and its comma note in the parse doc comment. Left: the usage header still describes the unnamed line only (the --name entry covers the rest); the plain print loop zips questions with outcomes, safe because Runner.decide returns one per question.

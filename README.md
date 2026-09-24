@@ -68,13 +68,13 @@ returns
 somewhat_urgent
 yes
 
-# Name questions; the name is the id each runs under
+# Name questions; a named question prints as name=answer
 $ decide --context @ticket.txt \
      "Which team handles this ticket?" --name team \
          --option shipping --option billing --option returns \
      "Should we issue a refund?" --name refund
-returns
-yes
+team=returns
+refund=yes
 
 # Compose context from multiple sources, refer by name in questions and options
 $ decide --context ticket=@ticket.txt \
@@ -170,9 +170,9 @@ $ decide --context ticket=@ticket.txt \
          --context refund_policy=@refund_policy.txt \
          --questions @triage.json
 
-returns
-somewhat_urgent
-Yes
+team=returns
+urgency=somewhat_urgent
+refund=Yes
 
 # Parse named questions using --json (and jq)
 $ decide --context ticket=@ticket.txt \
@@ -198,14 +198,13 @@ $ decide --context @ticket.txt \
          --json
 {"q1":{"kind":"choice","answer":"returns","confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}}}
 
-# Print each answer with its question's name (from --name, or q1, q2, ...)
+# A named question prints as name=answer; an unnamed one prints its answer alone
 $ decide --context @ticket.txt \
          "Which team handles this ticket?" --name team \
              --option shipping --option billing --option returns \
-         "Should we issue a refund?" \
-         --show-names
+         "Should we issue a refund?"
 team=returns
-q2=yes
+yes
 
 # Branch in a script via exit codes (-q suppresses printed output)
 if decide --context="$body" "Is this message spam?" -q; then

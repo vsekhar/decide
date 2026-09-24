@@ -33,23 +33,30 @@ struct DecideRunTests {
         refundQuestion + ["--min-confidence", bar]
     }
 
+    /// The refund question as the README's Scripting example asks it, with no
+    /// flags, so its answer prints as yes or no.
+    private static let plainRefundQuestion = ["Should we issue a refund?"]
+
+    /// The team answer from the README: `returns` at confidence 0.91.
+    private static let teamAnswer = AnswerRecord.choice(
+        reported: "returns",
+        probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03],
+        confidence: 0.91
+    )
+
+    /// The urgency answer from the README: `somewhat_urgent` at confidence
+    /// 0.78.
+    private static let urgencyAnswer = AnswerRecord.rating(
+        score: 1.15,
+        probabilities: [0: 0.15, 1: 0.55, 2: 0.30],
+        confidence: 0.78
+    )
+
     /// What the scripted model answers: `q1` is the team, `q2` the urgency,
     /// and `q3` the refund a test asks for.
     private static func answers(refund: AnswerRecord) -> Answers {
         Answers(
-            records: [
-                "q1": .choice(
-                    reported: "returns",
-                    probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03],
-                    confidence: 0.91
-                ),
-                "q2": .rating(
-                    score: 1.15,
-                    probabilities: [0: 0.15, 1: 0.55, 2: 0.30],
-                    confidence: 0.78
-                ),
-                "q3": refund,
-            ],
+            records: ["q1": teamAnswer, "q2": urgencyAnswer, "q3": refund],
             quality: .calibrated
         )
     }
@@ -84,6 +91,19 @@ struct DecideRunTests {
             box?.record(request)
             return Answers(
                 records: ["q1": .verdict(probability: probability)],
+                quality: .calibrated
+            )
+        }
+    }
+
+    /// A model that answers the questions the request asks, in order, with
+    /// these records, each under the id the request gave. One model serves a
+    /// run of named questions, unnamed ones, or a mix.
+    private static func model(answering records: [AnswerRecord]) -> ScriptedModel {
+        ScriptedModel { request in
+            let ids = request.questionnaire.specs.map(\.id)
+            return Answers(
+                records: Dictionary(uniqueKeysWithValues: zip(ids, records)),
                 quality: .calibrated
             )
         }
@@ -316,53 +336,101 @@ struct DecideRunTests {
         }
     }
 
-    @Test("The batch example with --show-names prints name=answer per line")
-    func showNamesBatch() async {
+    @Test("The Scripting example prints name=answer, then the unnamed answer alone")
+    func namedAndUnnamedLines() async {
         var out = ""
         var err = ""
 
         let code = await Decide.run(
-            arguments: ["--context", "some ticket text"] + Self.teamQuestion
-                + Self.urgencyQuestion + Self.refundQuestion + ["--show-names"],
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
+                + Self.plainRefundQuestion,
             environment: [:],
-            model: Self.triageModel(),
+            model: Self.model(answering: [Self.teamAnswer, .verdict(probability: 0.87)]),
             stdout: &out,
             stderr: &err
         )
 
         #expect(code == 0)
-        #expect(out == "q1=returns\nq2=somewhat_urgent\nq3=Yes\n")
+        #expect(out == "team=returns\nyes\n")
         #expect(err.isEmpty)
     }
 
-    @Test("A yes/no question with --show-names keeps its exit code")
-    func showNamesVerdict() async {
+    @Test("A batch of named questions prints name=answer on every line")
+    func namedBatch() async {
         var out = ""
         var err = ""
 
         let code = await Decide.run(
-            arguments: Self.spamQuestion + ["--show-names"],
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
+                + Self.urgencyQuestion + ["--name", "urgency"]
+                + Self.plainRefundQuestion + ["--name", "refund"],
             environment: [:],
-            model: Self.spamModel(probability: 0.2),
+            model: Self.model(
+                answering: [Self.teamAnswer, Self.urgencyAnswer, .verdict(probability: 0.87)]
+            ),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "team=returns\nurgency=somewhat_urgent\nrefund=yes\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("A mix of named and unnamed questions keeps every line in question order")
+    func mixedNamesInQuestionOrder() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
+                + Self.urgencyQuestion
+                + Self.plainRefundQuestion + ["--name", "refund"],
+            environment: [:],
+            model: Self.model(
+                answering: [Self.teamAnswer, Self.urgencyAnswer, .verdict(probability: 0.87)]
+            ),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "team=returns\nsomewhat_urgent\nrefund=yes\n")
+        // An unnamed question prints no position label.
+        #expect(!out.contains("q1"))
+        #expect(!out.contains("q2"))
+        #expect(!out.contains("q3"))
+        #expect(err.isEmpty)
+    }
+
+    @Test("A named yes/no question answered no prints name=no and exits 1")
+    func namedVerdictNo() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--name", "spam"],
+            environment: [:],
+            model: Self.model(answering: [.verdict(probability: 0.2)]),
             stdout: &out,
             stderr: &err
         )
 
         #expect(code == 1)
-        #expect(out == "q1=no\n")
+        #expect(out == "spam=no\n")
         #expect(err.isEmpty)
     }
 
-    @Test("An unsure run with --show-names prints nothing")
-    func showNamesUnsure() async {
+    @Test("A named question below its bar prints nothing and exits 2")
+    func namedUnsure() async {
         var out = ""
         var err = ""
 
+        // P(yes) 0.8 is confidence 0.60, below the bar of 0.90.
         let code = await Decide.run(
-            arguments: ["--context", "some ticket text"] + Self.teamQuestion
-                + Self.urgencyQuestion + Self.refundQuestion(bar: "0.7") + ["--show-names"],
+            arguments: Self.spamQuestion + ["--name", "spam", "--min-confidence", "0.9"],
             environment: [:],
-            model: Self.unsureRefundModel(),
+            model: Self.model(answering: [.verdict(probability: 0.8)]),
             stdout: &out,
             stderr: &err
         )
@@ -371,32 +439,36 @@ struct DecideRunTests {
         #expect(out.isEmpty)
     }
 
-    @Test("--show-names with -q exits 10 with the usage text")
-    func showNamesWithQuiet() async {
-        let model = Self.spamModel(probability: 0.8)
-        var out = ""
-        var err = ""
+    @Test("--name with -q prints nothing and answers with the exit code")
+    func namedQuietVerdict() async {
+        for (probability, expected) in [(0.8, Int32(0)), (0.2, Int32(1))] {
+            var out = ""
+            var err = ""
 
-        let code = await Decide.run(
-            arguments: Self.spamQuestion + ["--show-names", "-q"],
-            environment: [:],
-            model: model,
-            stdout: &out,
-            stderr: &err
-        )
+            let code = await Decide.run(
+                arguments: Self.spamQuestion + ["--name", "spam", "-q"],
+                environment: [:],
+                model: Self.model(answering: [.verdict(probability: probability)]),
+                stdout: &out,
+                stderr: &err
+            )
 
-        #expect(code == 10)
-        #expect(err.hasPrefix("Error: --show-names does not go with --quiet"))
-        #expect(err.contains(Decide.usage))
-        #expect(out.isEmpty)
-        #expect(model.callCount == 0)
+            #expect(code == expected, "P(yes) \(probability)")
+            #expect(out.isEmpty, "P(yes) \(probability)")
+            #expect(err.isEmpty, "P(yes) \(probability)")
+        }
     }
 
-    @Test("The usage text lists --show-names")
-    func usageListsShowNames() {
+    @Test("The usage text shows what --name prints and no --show-names")
+    func usageDropsShowNames() {
+        #expect(!Decide.usage.contains("--show-names"))
         #expect(
-            Decide.usage.contains("  --show-names                   Print each answer as name=answer")
+            Decide.usage.contains(
+                "  --name <name>                  The question's name, an identifier: "
+                    + "its id on the wire"
+            )
         )
+        #expect(Decide.usage.contains("and its line prints as name=answer."))
     }
 
     @Test("The batch example with --json prints one keyed line")
@@ -536,7 +608,7 @@ struct DecideRunTests {
         )
 
         #expect(code == 0)
-        #expect(out == "returns\n")
+        #expect(out == "team=returns\n")
         #expect(err.isEmpty)
         #expect(box.request?.questionnaire.specs.map(\.id) == ["team"])
     }
@@ -598,25 +670,6 @@ struct DecideRunTests {
         #expect(code == 10)
         #expect(out.isEmpty)
         #expect(err == "Error: invalid question q2: Two questions share the id.\n")
-    }
-
-    @Test("--show-names prints a named question by its name")
-    func showNamesNamedQuestion() async {
-        var out = ""
-        var err = ""
-
-        let code = await Decide.run(
-            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
-                + ["--show-names"],
-            environment: [:],
-            model: Self.namedTeamModel(),
-            stdout: &out,
-            stderr: &err
-        )
-
-        #expect(code == 0)
-        #expect(out == "team=returns\n")
-        #expect(err.isEmpty)
     }
 
     @Test("The usage text lists --name")

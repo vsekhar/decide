@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T23:36:43-04:00
-updated: 2026-09-23T23:36:43-04:00
+updated: 2026-09-23T23:43:47-04:00
 blocked-on:
   - hcp
 ---
@@ -108,3 +108,9 @@ Parent wip/1cy. Blocked on wip/hcp, which prints the `name=` head and settles th
 - [ ] An id with a tab or newline is refused.
 - [ ] `--help` and the README show both flags and the cut idioms.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-23 23:43:47-04:00 @ git:e1da41d+local_
+
+Design record additions at start (2026-09-23), beyond the description: (1) option(from:as:) refuses an id holding a tab, a line feed, or a carriage return; the message says 'tab or newline'. (2) PlainOutput imports Foundation for String(format: "%.3f", value), which takes no locale and so always prints a dot. (3) TESTING.md's suite list gains PlainOutput. (4) Parser placement: the two bare flags are handled beside --min-confidence with the same 'before any question' and 'repeats' errors; the --quiet conflict check sits where the old --show-names/--quiet check sat, after the name and context checks and before the one-yes/no-question rule; a question that asked for both flags names --distribution in the message. (5) PlainOutput owns the whole line, head included, so Decide.run's loop is one call. (6) JSONOutputTests' fixtures (score 1.2) are the exemplar for PlainOutputTests; DecideRunTests' scripted model (score 1.15) drives the run tests, so the run-level expected strings use 1.150.
