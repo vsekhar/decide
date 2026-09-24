@@ -21,9 +21,11 @@ public enum QuestionFile {
     /// through as it is.
     ///
     /// A value `@<path>` names a file, which `read` gives, or nil when there
-    /// is no file. Any other value is the text itself, and messages name it
-    /// `--questions`. A line with `--version`, `--help`, `-h`, or
-    /// `--set-config` comes back as it is, and no file is read.
+    /// is no file. A value `-` is standard input, which `standardInput`
+    /// gives, once per line; its messages name `stdin`. Any other value is
+    /// the text itself, and messages name it `--questions`. A line with
+    /// `--version`, `--help`, `-h`, or `--set-config` comes back as it is,
+    /// and nothing is read.
     ///
     /// A text that starts with `{` or `[`, after a BOM and whitespace, is a
     /// JSON question file: its questions take the flag's place finished, as
@@ -35,12 +37,14 @@ public enum QuestionFile {
     /// what the rules refuse.
     public static func expanding(
         _ arguments: [String],
-        read: (String) throws(ConfigReadError) -> String?
+        read: (String) throws(ConfigReadError) -> String?,
+        standardInput: () throws(ConfigReadError) -> String
     ) throws -> [Item] {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         guard !CommandLineParser.takesTheLine(arguments) else { return arguments.map(Item.token) }
         var items: [Item] = []
         var index = 0
+        var readStandardInput = false
         while index < arguments.count {
             let argument = arguments[index]
             index += 1
@@ -50,7 +54,13 @@ public enum QuestionFile {
                 items.append(.token(argument))
                 continue
             }
-            let (text, path) = try source(of: value, read: read)
+            if value == "-" {
+                guard !readStandardInput else {
+                    throw UsageError(CommandLineParser.standardInputTwice)
+                }
+                readStandardInput = true
+            }
+            let (text, path) = try source(of: value, read: read, standardInput: standardInput)
             if isJSON(text) {
                 items.append(.questions(try JSONQuestionFile.questions(from: text, path: path)))
                 continue
@@ -82,10 +92,21 @@ public enum QuestionFile {
     private static let bareFlags = ["--stats", "--distribution"]
 
     /// The text of a `--questions` value, and the path its messages name.
+    /// `-` reads `standardInput`, and its messages name `stdin`.
     private static func source(
         of value: String,
-        read: (String) throws(ConfigReadError) -> String?
+        read: (String) throws(ConfigReadError) -> String?,
+        standardInput: () throws(ConfigReadError) -> String
     ) throws -> (text: String, path: String) {
+        if value == "-" {
+            do {
+                return (try standardInput(), "stdin")
+            } catch .unreadable {
+                throw ConfigError(path: "stdin", line: 0, problem: "cannot read standard input")
+            } catch {
+                throw ConfigFiles.error(error, at: "stdin")
+            }
+        }
         guard value.hasPrefix("@") else { return (value, "--questions") }
         let path = String(value.dropFirst())
         guard !path.isEmpty else { throw UsageError("--questions @ names no file") }

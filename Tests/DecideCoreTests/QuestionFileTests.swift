@@ -245,17 +245,33 @@ private func readmeTriageQuestions() throws -> [Question] {
     try JSONQuestionFile.questions(from: readmeTriageJSON, path: jsonPath)
 }
 
+/// Counts the reads of standard input, so a test can prove how many there
+/// were.
+private final class Reads {
+    var count = 0
+}
+
 /// Expands the line with a reader that gives the text in `files`, throws the
-/// error in `failing`, and gives nil for any other path.
+/// error in `failing`, and gives nil for any other path. Standard input gives
+/// `standardInput`, or throws its error, and each read adds one to `reads`.
 private func expand(
     _ arguments: [String],
     files: [String: String] = [:],
-    failing: [String: ConfigReadError] = [:]
+    failing: [String: ConfigReadError] = [:],
+    standardInput: Result<String, ConfigReadError> = .success(""),
+    reads: Reads = Reads()
 ) throws -> [QuestionFile.Item] {
-    try QuestionFile.expanding(arguments) { (path: String) throws(ConfigReadError) -> String? in
-        if let error = failing[path] { throw error }
-        return files[path]
-    }
+    try QuestionFile.expanding(
+        arguments,
+        read: { (path: String) throws(ConfigReadError) -> String? in
+            if let error = failing[path] { throw error }
+            return files[path]
+        },
+        standardInput: { () throws(ConfigReadError) -> String in
+            reads.count += 1
+            return try standardInput.get()
+        }
+    )
 }
 
 /// Each argument as a token item.
@@ -548,5 +564,99 @@ struct QuestionFileExpansionTests {
         #expect(throws: UsageError("--questions needs a value")) {
             try expand(["A", "--questions"])
         }
+    }
+
+    @Test("--questions - and --questions=- splice the README's triage.txt from standard input")
+    func standardInputText() throws {
+        let expected = items([
+            "--context", "@ticket.txt",
+            "Which team handles this ticket",
+            "--option", "shipping", "--option", "billing", "--option", "returns",
+            "How urgent is this ticket",
+            "--level", "not_urgent", "--level", "somewhat_urgent", "--level", "urgent",
+            "Should we issue a refund",
+        ])
+        for flag in [["--questions", "-"], ["--questions=-"]] {
+            let reads = Reads()
+            let result = try expand(
+                ["--context", "@ticket.txt"] + flag,
+                standardInput: .success(readmeFile),
+                reads: reads
+            )
+            #expect(result == expected, "\(flag)")
+            #expect(reads.count == 1, "\(flag)")
+        }
+    }
+
+    @Test("--questions - with the README's triage.json gives one item of its three questions")
+    func standardInputJSON() throws {
+        let questions = try readmeTriageQuestions()
+        for flag in [["--questions", "-"], ["--questions=-"]] {
+            let result = try expand(["A"] + flag + ["B"], standardInput: .success(readmeTriageJSON))
+            #expect(result == items(["A"]) + [.questions(questions)] + items(["B"]), "\(flag)")
+        }
+    }
+
+    @Test("An unterminated quote on standard input names stdin and its line")
+    func standardInputUnterminatedQuote() {
+        #expect(throws: ConfigError(path: "stdin", line: 2, problem: "unterminated quote")) {
+            try expand(["--questions", "-"], standardInput: .success("Q\n\"R\n"))
+        }
+    }
+
+    @Test("A JSON fault on standard input names stdin and the JSON path")
+    func standardInputJSONFault() {
+        let file = #"{"questions": [{"name": "spam"}]}"#
+        #expect(
+            throws: ConfigError(
+                path: "stdin", line: 0, problem: #"questions[0]: missing key "instructions""#
+            )
+        ) {
+            try expand(["--questions", "-"], standardInput: .success(file))
+        }
+    }
+
+    @Test("Standard input that does not read, or is not UTF-8, names stdin")
+    func standardInputFailures() {
+        #expect(throws: ConfigError(path: "stdin", line: 0, problem: "cannot read standard input")) {
+            try expand(["--questions", "-"], standardInput: .failure(.unreadable))
+        }
+        #expect(throws: ConfigError(path: "stdin", line: 0, problem: "is not valid UTF-8")) {
+            try expand(["--questions", "-"], standardInput: .failure(.notUTF8))
+        }
+    }
+
+    @Test("Empty standard input adds nothing")
+    func emptyStandardInput() throws {
+        #expect(try expand(["A", "--questions", "-"], standardInput: .success("")) == items(["A"]))
+    }
+
+    @Test("Two --questions - throw the once-per-run error, and standard input reads once")
+    func standardInputTwice() {
+        let reads = Reads()
+        #expect(throws: UsageError(CommandLineParser.standardInputTwice)) {
+            try expand(
+                ["--questions", "-", "--questions=-"], standardInput: .success("A"), reads: reads
+            )
+        }
+        #expect(reads.count == 1)
+    }
+
+    @Test("--questions - with --help never reads standard input")
+    func standardInputWithHelp() throws {
+        let reads = Reads()
+        let line = ["--questions", "-", "--help"]
+        #expect(try expand(line, standardInput: .success("A"), reads: reads) == items(line))
+        #expect(reads.count == 0)
+    }
+
+    @Test("--questions @- reads the file named -, not standard input")
+    func fileNamedDash() throws {
+        let reads = Reads()
+        let result = try expand(
+            ["--questions", "@-"], files: ["-": "F"], standardInput: .success("S"), reads: reads
+        )
+        #expect(result == items(["F"]))
+        #expect(reads.count == 0)
     }
 }

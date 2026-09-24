@@ -2,7 +2,7 @@
 priority: p2
 type: feature
 created: 2026-09-24T02:31:41-04:00
-updated: 2026-09-24T02:31:41-04:00
+updated: 2026-09-24T04:10:51-04:00
 ---
 
 # Read a context or a question file from standard input with -
@@ -87,3 +87,128 @@ One sentence after it: a run reads standard input once, so `-` may appear once o
 - [ ] A stdin that does not read or is not UTF-8 exits 10 with a message naming standard input, for both the context and the questions case, with no Foundation text in it.
 - [ ] `--help` and the README describe `-`, and every usage-text test passes.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes; `swift test --filter DecideLive` passes with a key.
+
+---
+
+_📝 Noted on 2026-09-24 04:00:06-04:00 @ git:a31ca94+local_
+
+Design record (2026-09-24), start. Everything below is verbatim for code and docs unless marked "worker's call".
+
+## Types
+
+1. `ContextSource` (Invocation.swift) gains a third case, after `file`:
+
+```swift
+    /// The whole of standard input, from `--context -` or
+    /// `--context <name>=-`. The run reads it as UTF-8, once.
+    case standardInput
+```
+
+The `Invocation` doc sentence "`ContextSource.file` names a path; the run reads it." becomes "`ContextSource.file` names a path and `.standardInput` names stdin; the run reads them."
+
+2. `StandardStreams.swift` gains, after `StandardError`:
+
+```swift
+/// The process's standard input, read whole.
+public struct StandardInput {
+    public init() {}
+
+    /// Every byte up to end of file, as text. A descriptor that does not
+    /// read is `.unreadable`, and bytes that are not UTF-8 are `.notUTF8`,
+    /// decoded here so both platforms give the same words. Waits for end
+    /// of file, so a terminal needs Ctrl-D, as `cat -` does.
+    public func readToEnd() throws(ConfigReadError) -> String
+```
+
+Use `FileHandle.standardInput.readToEnd()`, the throwing one that gives `Data?`: a throw is `.unreadable`, nil is the empty string. Not `readDataToEndOfFile()`, which raises an uncatchable exception on macOS when the descriptor is closed.
+
+## Parser
+
+3. `contextSource(from:as:)`: a value equal to `-` is `.standardInput`, checked before the `@` rule, so `@-` stays `.file("-")` and `-x` stays text. Its doc comment becomes: "Reads the text or path of a `--context` value. `-` alone is standard input. A leading `@` names a file. Anything else is the text itself, and a later `@` stays literal. `prefix` is what the names-no-file message quotes before the `@`: `--context ` for an unnamed value, `--context ticket=` for a named one."
+
+4. `context(from:)`: after the mix rule and the repeated-name check, more than one `.standardInput` source throws `UsageError(standardInputTwice)`, where
+
+```swift
+    /// The message for a line that names standard input twice, from any two
+    /// of `--context -`, `--context <name>=-`, and `--questions -`. The
+    /// expansion and the run use the same words.
+    static let standardInputTwice = "- was given twice: standard input reads once"
+```
+
+lives on `CommandLineParser`. The `parse` doc comment gains, after the sentence about named contexts: "A `--context` value of `-` is standard input, which a line may name once."
+
+## Expansion
+
+5. `QuestionFile.expanding` gains a third parameter, `standardInput: () throws(ConfigReadError) -> String`, non-escaping like `read`, and `source(of:read:standardInput:)` takes it too. A value equal to `-` reads it and names the path `stdin` in every message. Mapping: `.notUTF8` through `ConfigFiles.error(_:at: "stdin")` as it is; `.unreadable` to `ConfigError(path: "stdin", line: 0, problem: "cannot read standard input")`. A local flag records that stdin was read; a second `-` throws `UsageError(CommandLineParser.standardInputTwice)` before reading again. The JSON sniff, the text-file rules, and the empty-file rule apply as they do to a file. The `takesTheLine` guard already returns before any read. The doc comment sentence "A value `@<path>` names a file, which `read` gives, or nil when there is no file." gains, after it: "A value `-` is standard input, which `standardInput` gives, once per line; its messages name `stdin`."
+
+## Run
+
+6. `Decide.run` gains, after `model:`, `standardInput: () throws(ConfigReadError) -> String = StandardInput().readToEnd`, so `DecideCommand` needs no change and tests pass a closure over a string. Inside `run`, a local `var readStandardInput = false` and a wrapper closure that sets it and calls through go to `expanding` and to `loadContext`. Right after `parse`, in the same `do`: when `readStandardInput` is true and the invocation's context holds a `.standardInput` source, throw `UsageError(CommandLineParser.standardInputTwice)`, which `report` prints with the usage text, exit 10, before config files, the model, or any context load. Give `Context` a computed property for the check:
+
+```swift
+    /// Whether any source is standard input, which a run reads once.
+    public var readsStandardInput: Bool
+```
+
+7. `loadContext` gains a `.standardInput` case that reads through the wrapper. On `.unreadable` it prints `Error: cannot read standard input`, on `.notUTF8` `Error: standard input is not valid UTF-8`, and returns nil, so the run exits 10 with no model call. It runs after `makeModel`, so a bad `--model` still fails first and never waits on stdin. The `run` doc comment gains: "`-` as a `--context` value or a `--questions` value reads standard input, once per run."
+
+8. Usage text, three new lines in the current column: after `--context @<path>`:
+
+```
+          --context -                    Context from standard input.
+```
+
+after the `--context <name>=@<path>` pair:
+
+```
+          --context <name>=-             A named context from standard input.
+```
+
+after `--questions <text>`:
+
+```
+          --questions -                  The same, from standard input. One - per run:
+                                         standard input reads once.
+```
+
+## Docs
+
+9. README, under "## Advanced usage", a new subsection right after the Question files subsection (before "### Confidence bars"):
+
+````
+### Standard input
+
+```sh
+# - reads the whole of standard input as a context or as a question file, once per run
+$ cat ticket.txt | decide --context ticket=- --questions @triage.txt
+$ cat triage.txt | decide --context @ticket.txt --questions -
+```
+
+A run reads standard input once, so `-` may appear once on a line. `@-` names a file called `-`.
+````
+
+10. DEVELOPMENT.md, Layout: the `StandardStreams.swift` line becomes "- `Sources/DecideCore/StandardStreams.swift`: stdin, stdout, and stderr as values."
+
+## Tests
+
+11. `CommandLineParserTests`: `--context -` and `--context=-` give `.single(.standardInput)`; `--context ticket=-` and `--context=ticket=-` give the named form; `--context a=- --context b=-` throws `standardInputTwice`; `--context @-` gives `.file("-")` and `--context ticket=@-` its named twin; `--context -x` and `--context ticket=-x` are text; `--context - --context b=@f` reports the mix rule; a bare `-` question is still `unknown flag: -`; `--option -` is still an option id.
+
+12. `QuestionFileTests`: the `expand` helper gains a `standardInput` string and a call counter. `--questions -` and `--questions=-` with the README's `triage.txt` text give its 15 tokens in place, and with `triage.json` one `.questions` item of its three questions; an unterminated quote names `stdin:<line>`; a JSON fault names `stdin` and the JSON path; `.unreadable` gives `ConfigError("stdin", 0, "cannot read standard input")` and `.notUTF8` gives `ConfigError("stdin", 0, "is not valid UTF-8")`; empty stdin contributes nothing; two `-` throw `standardInputTwice` and the closure ran once; `--questions - --help` never calls the closure; `--questions @-` reads the file `-` through `read`, not stdin.
+
+13. `DecideRunTests`: `--context ticket=-` with the ticket text on the injected stdin sends `.object(["ticket": .text(text)])` and prints `returns`, exit 0; `--context -` sends `.text(text)`; `--questions -` with the README's `triage.txt` text prints the three answers in order; `--questions -` plus `--context ticket=-` exits 10 with `Error: - was given twice: standard input reads once` and the usage text on stderr, nothing on stdout, no model call, and the closure ran at most once; a closure that throws `.unreadable` under `--context ticket=-` exits 10 with `Error: cannot read standard input\n`, no model call; `.notUTF8` gives `Error: standard input is not valid UTF-8\n`; `--model nosuch` (a malformed model) with `--context ticket=-` exits 10 without calling the closure; `--help` lists the three new lines.
+
+## Out of scope
+
+`--each` and `--context-json`. TTY detection or a timeout. A default of stdin when the line has no `--context`. The library. No live test.
+
+---
+
+_📝 Noted on 2026-09-24 04:06:39-04:00 @ git:a31ca94+local_
+
+Implementation (2026-09-24), worker's calls accepted on review: (1) The once-only wrapper in Decide.run is a local function readStandardInputOnce(), since a stored closure would need the standardInput parameter to be escaping; loadState and loadContext take it as a parameter. (2) The compiler accepts the default argument = StandardInput().readToEnd as written. (3) loadContext's .standardInput case uses one catch and an exhaustive switch over ConfigReadError. (4) QuestionFile.expanding holds the once-per-line flag and sets it before the read; source(of:read:standardInput:) does the read and maps .unreadable to 'stdin: cannot read standard input' and .notUTF8 through ConfigFiles.error. (5) The parser counts .standardInput sources over the named list, since one unnamed value cannot repeat. (6) Test doubles: QuestionFileTests.expand takes a Result<String, ConfigReadError> and a Reads counter; DecideRunTests has ScriptedInput (text or error, read count) and shares the README triage.txt text as readmeTriageText. (7) usageListsQuestions and usageListsNamedContexts assert the three new usage lines. Nothing committed yet.
+
+---
+
+_📝 Noted on 2026-09-24 04:10:51-04:00 @ git:a31ca94+local_
+
+Summary (2026-09-24): done. - reads the whole of standard input for --context, --context <name>=, and --questions; ContextSource.standardInput; StandardInput.readToEnd() in StandardStreams.swift through the throwing FileHandle.readToEnd() with UTF-8 decoded by hand; QuestionFile.expanding and Decide.run take a standardInput closure, the run wrapping it to record the read. The once-per-run rule lives in three places with one message (CommandLineParser.standardInputTwice): the parser over named contexts, the expansion over --questions values before a second read, and the run across the two right after parse. Messages about a stdin question file name stdin. Usage text, README (Standard input section), DEVELOPMENT.md updated. Verifier: all six criteria hold; ten pipe runs of the real binary behaved as specified (piped ticket reached the model; closed, non-UTF-8, twice, help, and bad-model cases all as designed). Its should-fix, whether Linux Foundation has FileHandle.readToEnd(), is settled: swift-corelibs-foundation declares public func readToEnd() throws -> Data? beside the write(contentsOf:) and close() the config writer already uses on Linux CI. Nits applied: the run-level twice test also covers --context - with --questions -; the run's flag and local function are standardInputWasRead and readStandardInput() with a comment; the expansion doc says a line taker reads nothing. Latent, not acted on: with fd 0 closed, a later open in the process could take descriptor 0 before a context read; today the run reports cannot read standard input, and the design does not claim to handle it. 525 offline tests and 5 live tests pass.

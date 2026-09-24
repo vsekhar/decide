@@ -37,8 +37,7 @@ targets are awkward.
   they merge, and how the result lays under the environment.
 - `Sources/DecideCore/ExitCode.swift`: every error to an exit code and a
   one-line message.
-- `Sources/DecideCore/StandardStreams.swift`: stdout and stderr as
-  `TextOutputStream` values.
+- `Sources/DecideCore/StandardStreams.swift`: stdin, stdout, and stderr as values.
 - `Sources/DecideCore/Decide.swift`: `Decide.run` and the usage text.
 - `Sources/DecideCore/Version.swift`: `Decide.version`, the string
   `--version` prints and `--help` shows. The Release section says when to

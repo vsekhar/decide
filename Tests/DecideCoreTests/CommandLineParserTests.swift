@@ -556,6 +556,97 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--context - and --context=- are standard input")
+    func contextStandardInput() throws {
+        for line in [["--context", "-"], ["--context=-"]] {
+            let result = try CommandLineParser.parse(line + ["Q", "--option", "a"])
+            #expect(
+                result == .run(Invocation(context: .single(.standardInput), questions: [question])),
+                "\(line)"
+            )
+        }
+    }
+
+    @Test("--context ticket=- and --context=ticket=- are a named context from standard input")
+    func namedContextStandardInput() throws {
+        for line in [["--context", "ticket=-"], ["--context=ticket=-"]] {
+            let result = try CommandLineParser.parse(line + ["Q", "--option", "a"])
+            #expect(
+                result
+                    == .run(
+                        Invocation(
+                            context: .named([NamedContext(name: "ticket", source: .standardInput)]),
+                            questions: [question]
+                        )
+                    ),
+                "\(line)"
+            )
+        }
+    }
+
+    @Test("Two named contexts from standard input are an error")
+    func contextStandardInputTwice() {
+        #expect(throws: UsageError(CommandLineParser.standardInputTwice)) {
+            try CommandLineParser.parse(["--context", "a=-", "--context", "b=-", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("--context @- and --context ticket=@- name a file called -")
+    func contextFileNamedDash() throws {
+        #expect(
+            try CommandLineParser.parse(["--context", "@-", "Q", "--option", "a"])
+                == .run(Invocation(context: .single(.file("-")), questions: [question]))
+        )
+        #expect(
+            try CommandLineParser.parse(["--context", "ticket=@-", "Q", "--option", "a"])
+                == .run(
+                    Invocation(
+                        context: .named([NamedContext(name: "ticket", source: .file("-"))]),
+                        questions: [question]
+                    )
+                )
+        )
+    }
+
+    @Test("--context -x and --context ticket=-x are text")
+    func contextDashText() throws {
+        #expect(
+            try CommandLineParser.parse(["--context", "-x", "Q", "--option", "a"])
+                == .run(Invocation(context: .single(.text("-x")), questions: [question]))
+        )
+        #expect(
+            try CommandLineParser.parse(["--context", "ticket=-x", "Q", "--option", "a"])
+                == .run(
+                    Invocation(
+                        context: .named([NamedContext(name: "ticket", source: .text("-x"))]),
+                        questions: [question]
+                    )
+                )
+        )
+    }
+
+    @Test("An unnamed --context - among named values reports the mix rule")
+    func contextStandardInputMix() {
+        #expect(
+            throws: UsageError(
+                """
+                every --context needs a name when there is more than one, \
+                like --context ticket=@ticket.txt
+                """
+            )
+        ) {
+            try CommandLineParser.parse(["--context", "-", "--context", "b=@f", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("--option - is still an option id")
+    func optionDash() throws {
+        #expect(
+            try CommandLineParser.parse(["--context", "c", "Q", "--option", "-"])
+                == .run(invocation(Option(id: "-")))
+        )
+    }
+
     @Test("A line with no question is an error")
     func noQuestion() {
         #expect(throws: UsageError("no question given")) {

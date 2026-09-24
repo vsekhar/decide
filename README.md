@@ -181,6 +181,16 @@ urgency=somewhat_urgent
 refund=Yes
 ```
 
+### Standard input
+
+```sh
+# - reads the whole of standard input as a context or as a question file, once per run
+$ cat ticket.txt | decide --context ticket=- --questions @triage.txt
+$ cat triage.txt | decide --context @ticket.txt --questions -
+```
+
+A run reads standard input once, so `-` may appear once on a line. `@-` names a file called `-`.
+
 ### Confidence bars
 
 ```sh

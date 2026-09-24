@@ -2,7 +2,8 @@
 /// if any, and the model and key to use, when the line names them.
 ///
 /// The parser builds this from the command line. Nothing here touches a file
-/// or the network. `ContextSource.file` names a path; the run reads it.
+/// or the network. `ContextSource.file` names a path and `.standardInput`
+/// names stdin; the run reads them.
 public struct Invocation: Sendable, Equatable {
     /// Where the context comes from. `nil` is a run with no context: the
     /// questions carry their own facts.
@@ -60,6 +61,16 @@ public enum Context: Sendable, Equatable {
     /// prose. One named context is a one-field object. The parser keeps
     /// names unique; the run keeps the last of a repeat.
     case named([NamedContext])
+
+    /// Whether any source is standard input, which a run reads once.
+    public var readsStandardInput: Bool {
+        switch self {
+        case .single(let source):
+            return source == .standardInput
+        case .named(let contexts):
+            return contexts.contains { $0.source == .standardInput }
+        }
+    }
 }
 
 /// One `--context <name>=...`: the name and where its text comes from.
@@ -83,6 +94,9 @@ public enum ContextSource: Sendable, Equatable {
     /// A path, from `--context @path` or `--context <name>=@path`. The run
     /// reads it as UTF-8.
     case file(String)
+    /// The whole of standard input, from `--context -` or
+    /// `--context <name>=-`. The run reads it as UTF-8, once.
+    case standardInput
 }
 
 /// One question and the kind of answer it takes.

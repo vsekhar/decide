@@ -17,13 +17,17 @@ public enum Decide {
 
           --context <text>               Optional context for question(s).
           --context @<path>              Context from file.
+          --context -                    Context from standard input.
           --context <name>=<text>        A named context, as a field of one JSON object.
           --context <name>=@<path>       A named context from a file. With more than one
                                          --context, every one needs a name.
+          --context <name>=-             A named context from standard input.
           --questions @<path>            Questions from a file, in the flag's place: a JSON
                                          file when it starts with {, else questions and their
                                          flags split like a command line, # starting a comment.
           --questions <text>             The same, from the text itself.
+          --questions -                  The same, from standard input. One - per run:
+                                         standard input reads once.
           "<question>"                   A question. The flags after it belong to it.
           --option <label>[=explanation] An option the model can choose, optional explanation.
           --level <label>[=explanation]  A level on a scale, low to high, optional explanation.
@@ -88,6 +92,8 @@ public enum Decide {
     /// has a fallback, the fallbacks print and the run is decided; otherwise
     /// nothing prints and the code is 11. Before it parses the line, it reads
     /// each `--questions` file and puts its questions in the flag's place.
+    /// `-` as a `--context` value or a `--questions` value reads standard
+    /// input, once per run.
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
@@ -98,13 +104,27 @@ public enum Decide {
         environment: [String: String],
         currentDirectory: String? = nil,
         model: (any DecisionModel)? = nil,
+        standardInput: () throws(ConfigReadError) -> String = StandardInput().readToEnd,
         stdout: inout some TextOutputStream,
         stderr: inout some TextOutputStream
     ) async -> Int32 {
+        // Records the read, so the check after `parse` can refuse a second
+        // `-` on the line.
+        var standardInputWasRead = false
+        func readStandardInput() throws(ConfigReadError) -> String {
+            standardInputWasRead = true
+            return try standardInput()
+        }
         let parsed: ParseResult
         do {
-            let items = try QuestionFile.expanding(arguments, read: readConfigFile)
+            let items = try QuestionFile.expanding(
+                arguments, read: readConfigFile, standardInput: readStandardInput
+            )
             parsed = try CommandLineParser.parse(items: items)
+            if standardInputWasRead, case .run(let invocation) = parsed,
+               invocation.context?.readsStandardInput == true {
+                throw UsageError(CommandLineParser.standardInputTwice)
+            }
         } catch let error as UsageError {
             report(error, to: &stderr)
             return ExitCode.setup
@@ -161,7 +181,11 @@ public enum Decide {
 
         let state: State?
         if let context = invocation.context {
-            guard let loaded = loadState(context, stderr: &stderr) else { return ExitCode.setup }
+            guard let loaded = loadState(
+                context, standardInput: readStandardInput, stderr: &stderr
+            ) else {
+                return ExitCode.setup
+            }
             state = loaded
         } else {
             state = nil
@@ -356,14 +380,19 @@ public enum Decide {
     /// Reads the run's context into the state the model sees. One context is
     /// its text. Named contexts are one object, each field the text of the
     /// context of that name, read in command-line order. Prints the reason to
-    /// `stderr` and returns nil when a file does not read.
+    /// `stderr` and returns nil when a file or standard input does not read.
     private static func loadState(
         _ context: Context,
+        standardInput: () throws(ConfigReadError) -> String,
         stderr: inout some TextOutputStream
     ) -> State? {
         switch context {
         case .single(let source):
-            guard let text = loadContext(source, stderr: &stderr) else { return nil }
+            guard let text = loadContext(
+                source, standardInput: standardInput, stderr: &stderr
+            ) else {
+                return nil
+            }
             return .text(text)
         case .named(let contexts):
             // Assignment, not `Dictionary(uniqueKeysWithValues:)`, which traps
@@ -371,7 +400,11 @@ public enum Decide {
             // `Invocation` is public, so the last one wins instead.
             var fields: [String: State] = [:]
             for context in contexts {
-                guard let text = loadContext(context.source, stderr: &stderr) else { return nil }
+                guard let text = loadContext(
+                    context.source, standardInput: standardInput, stderr: &stderr
+                ) else {
+                    return nil
+                }
                 fields[context.name] = .text(text)
             }
             return .object(fields)
@@ -379,10 +412,12 @@ public enum Decide {
     }
 
     /// Reads the context. `.text` is the text itself; `.file` is read as
-    /// UTF-8. Prints the reason to `stderr` and returns nil when the file
-    /// does not read.
+    /// UTF-8, and `.standardInput` through `standardInput`. Prints the reason
+    /// to `stderr` and returns nil when the file or standard input does not
+    /// read.
     private static func loadContext(
         _ source: ContextSource,
+        standardInput: () throws(ConfigReadError) -> String,
         stderr: inout some TextOutputStream
     ) -> String? {
         switch source {
@@ -396,6 +431,16 @@ public enum Decide {
                     "Error: cannot read context file \"\(path)\": \(error.localizedDescription)",
                     to: &stderr
                 )
+                return nil
+            }
+        case .standardInput:
+            do {
+                return try standardInput()
+            } catch {
+                switch error {
+                case .unreadable: print("Error: cannot read standard input", to: &stderr)
+                case .notUTF8: print("Error: standard input is not valid UTF-8", to: &stderr)
+                }
                 return nil
             }
         }

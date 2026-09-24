@@ -57,10 +57,11 @@ public enum CommandLineParser {
     /// with no state. A `--context` whose value starts with a name and `=` is
     /// a named context, and the model sees every named context as one field
     /// of one object; a name that is not an identifier is an error, not text.
-    /// A line with more than one `--context` must name every one. `--model`
-    /// and `--api-key` set the model and key for this run, over the
-    /// environment and every config file. `--version` anywhere returns
-    /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
+    /// A line with more than one `--context` must name every one. A
+    /// `--context` value of `-` is standard input, which a line may name
+    /// once. `--model` and `--api-key` set the model and key for this run,
+    /// over the environment and every config file. `--version` anywhere
+    /// returns `.version(alone:)`, alone or not. Without it, `--help` or `-h`
     /// anywhere returns `.help`. `--set-config` after those two takes the
     /// line for itself: `--model`, `--api-key`, and `--project` join it, and
     /// any other token is an error. `--questions` is an error: the caller
@@ -71,9 +72,9 @@ public enum CommandLineParser {
         return try parse(items: arguments.map(QuestionFile.Item.token))
     }
 
-    /// Parses the items `QuestionFile.expanding(_:read:)` gives, as
-    /// `parse(_:)` parses arguments. No items is no question: the line may
-    /// hold only an empty question file.
+    /// Parses the items `QuestionFile.expanding(_:read:standardInput:)`
+    /// gives, as `parse(_:)` parses arguments. No items is no question: the
+    /// line may hold only an empty question file.
     ///
     /// A `.questions` item puts its finished questions at its place among the
     /// questions the line builds, and they count in every question number. A
@@ -694,14 +695,16 @@ public enum CommandLineParser {
         }
     }
 
-    /// Reads the text or path of a `--context` value. A leading `@` names a
-    /// file. Anything else is the text itself, and a later `@` stays literal.
-    /// `prefix` is what the names-no-file message quotes before the `@`:
-    /// `--context ` for an unnamed value, `--context ticket=` for a named one.
+    /// Reads the text or path of a `--context` value. `-` alone is standard
+    /// input. A leading `@` names a file. Anything else is the text itself,
+    /// and a later `@` stays literal. `prefix` is what the names-no-file
+    /// message quotes before the `@`: `--context ` for an unnamed value,
+    /// `--context ticket=` for a named one.
     private static func contextSource(
         from value: String,
         as prefix: String
     ) throws(UsageError) -> ContextSource {
+        guard value != "-" else { return .standardInput }
         guard value.hasPrefix("@") else { return .text(value) }
         let path = String(value.dropFirst())
         guard !path.isEmpty else { throw UsageError("\(prefix)@ names no file") }
@@ -733,8 +736,16 @@ public enum CommandLineParser {
                 throw UsageError("--context names \"\(context.name)\" twice")
             }
         }
+        guard named.filter({ $0.source == .standardInput }).count < 2 else {
+            throw UsageError(standardInputTwice)
+        }
         return .named(named)
     }
+
+    /// The message for a line that names standard input twice, from any two
+    /// of `--context -`, `--context <name>=-`, and `--questions -`. The
+    /// expansion and the run use the same words.
+    static let standardInputTwice = "- was given twice: standard input reads once"
 
     /// Reads an `--option`, `--level`, `--yes`, or `--no` value. The first
     /// `=` splits the id from the description. An empty description counts as

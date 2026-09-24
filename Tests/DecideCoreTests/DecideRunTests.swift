@@ -132,6 +132,9 @@ struct DecideRunTests {
         }
     }
 
+    /// The ticket a test puts on standard input.
+    private static let ticketText = "The parcel never arrived and I want my money back.\n"
+
     /// The spam question from the README, with no question flags.
     private static let spamQuestion = ["--context", "some message text", "Is this message spam?"]
 
@@ -1176,6 +1179,11 @@ struct DecideRunTests {
     func usageListsNamedContexts() {
         #expect(Decide.usage.contains("  --context <name>=<text> "))
         #expect(Decide.usage.contains("  --context <name>=@<path> "))
+        #expect(
+            Decide.usage.contains(
+                "\n  --context <name>=-             A named context from standard input.\n"
+            )
+        )
     }
 
     @Test("No arguments prints the usage text on stderr and exits 10")
@@ -2063,24 +2071,25 @@ struct DecideRunTests {
         return url.path
     }
 
+    /// The README's `triage.txt`.
+    private static let readmeTriageText = """
+        "Which team handles this ticket"
+            --option shipping
+            --option billing
+            --option returns
+
+        "How urgent is this ticket"
+            --level not_urgent
+            --level somewhat_urgent
+            --level urgent
+
+        "Should we issue a refund"
+
+        """
+
     @Test("The README question file prints its three answers in order")
     func readmeQuestionFile() async throws {
-        let path = try Self.questionFile(
-            """
-            "Which team handles this ticket"
-                --option shipping
-                --option billing
-                --option returns
-
-            "How urgent is this ticket"
-                --level not_urgent
-                --level somewhat_urgent
-                --level urgent
-
-            "Should we issue a refund"
-
-            """
-        )
+        let path = try Self.questionFile(Self.readmeTriageText)
         defer { try? FileManager.default.removeItem(atPath: path) }
         let box = RequestBox()
         var out = ""
@@ -2426,11 +2435,164 @@ struct DecideRunTests {
                                                  file when it starts with {, else questions and their
                                                  flags split like a command line, # starting a comment.
                   --questions <text>             The same, from the text itself.
+                  --questions -                  The same, from standard input. One - per run:
+                                                 standard input reads once.
 
                 """
             )
         )
+        #expect(out.contains("\n  --context -                    Context from standard input.\n"))
         #expect(err.isEmpty)
+    }
+
+    @Test("--context ticket=- sends standard input as the ticket field and prints returns")
+    func namedContextFromStandardInput() async throws {
+        let input = ScriptedInput(Self.ticketText)
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "ticket=-"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.triageModel(recording: box),
+            standardInput: input.read,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\n")
+        #expect(err.isEmpty)
+        #expect(input.reads == 1)
+        let request = try #require(box.request)
+        #expect(request.state == .object(["ticket": .text(Self.ticketText)]))
+    }
+
+    @Test("--context - sends standard input as the text")
+    func contextFromStandardInput() async throws {
+        let input = ScriptedInput(Self.ticketText)
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "-"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.triageModel(recording: box),
+            standardInput: input.read,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\n")
+        #expect(err.isEmpty)
+        #expect(input.reads == 1)
+        let request = try #require(box.request)
+        #expect(request.state == .text(Self.ticketText))
+    }
+
+    @Test("--questions - with the README's triage.txt prints its three answers in order")
+    func questionsFromStandardInput() async {
+        let input = ScriptedInput(Self.readmeTriageText)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text", "--questions", "-"],
+            environment: [:],
+            model: Self.triageModel(),
+            standardInput: input.read,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\nsomewhat_urgent\nyes\n")
+        #expect(err.isEmpty)
+        #expect(input.reads == 1)
+    }
+
+    @Test("--questions - with --context ticket=- exits 10 with the usage text and reaches no model")
+    func standardInputTwice() async {
+        let lines = [
+            ["--questions", "-", "--context", "ticket=-"],
+            ["--context", "ticket=-", "--questions", "-"],
+            ["--context", "-", "--questions", "-"],
+        ]
+        for line in lines {
+            let input = ScriptedInput(Self.readmeTriageText)
+            let model = Self.triageModel()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: line,
+                environment: [:],
+                model: model,
+                standardInput: input.read,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(line)")
+            #expect(
+                err == "Error: - was given twice: standard input reads once\n\n" + Decide.usage + "\n",
+                "\(line)"
+            )
+            #expect(out.isEmpty, "\(line)")
+            #expect(model.callCount == 0, "\(line)")
+            #expect(input.reads <= 1, "\(line)")
+        }
+    }
+
+    @Test("Standard input that does not read, or is not UTF-8, exits 10 and reaches no model")
+    func standardInputFailures() async {
+        let cases: [(ConfigReadError, String)] = [
+            (.unreadable, "Error: cannot read standard input\n"),
+            (.notUTF8, "Error: standard input is not valid UTF-8\n"),
+        ]
+        for (failure, message) in cases {
+            let input = ScriptedInput(failing: failure)
+            let model = Self.triageModel()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context", "ticket=-"] + Self.teamQuestion,
+                environment: [:],
+                model: model,
+                standardInput: input.read,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(failure)")
+            #expect(err == message, "\(failure)")
+            #expect(out.isEmpty, "\(failure)")
+            #expect(model.callCount == 0, "\(failure)")
+        }
+    }
+
+    @Test("A malformed --model with --context ticket=- exits 10 before it reads standard input")
+    func badModelBeforeStandardInput() async {
+        let input = ScriptedInput(Self.ticketText)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--model", "nosuch", "--context", "ticket=-"] + Self.teamQuestion,
+            environment: [:],
+            standardInput: input.read,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("is not provider:model"))
+        #expect(out.isEmpty)
+        #expect(input.reads == 0)
     }
 }
 
@@ -2486,6 +2648,26 @@ private struct ConfigTree {
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
         try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// Standard input for a run: gives the text, or throws the error, and counts
+/// each read.
+private final class ScriptedInput {
+    private let result: Result<String, ConfigReadError>
+    private(set) var reads = 0
+
+    init(_ text: String) {
+        result = .success(text)
+    }
+
+    init(failing error: ConfigReadError) {
+        result = .failure(error)
+    }
+
+    func read() throws(ConfigReadError) -> String {
+        reads += 1
+        return try result.get()
     }
 }
 
