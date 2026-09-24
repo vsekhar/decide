@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/vsekhar/decide/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vsekhar/decide/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/vsekhar/decide/branch/main/graph/badge.svg)](https://codecov.io/gh/vsekhar/decide)
+[![GitHub License](https://img.shields.io/github/license/vsekhar/decide)](LICENSE.txt)
+[![Follow @vsekhar on X](https://img.shields.io/twitter/follow/vsekhar)](https://x.com/vsekhar?ref_src=twsrc%5Etfw)
 
 Make decisions from the command line.
 
