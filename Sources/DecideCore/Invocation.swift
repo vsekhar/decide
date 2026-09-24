@@ -94,6 +94,12 @@ public struct Question: Sendable, Equatable {
     /// The confidence the answer needs, from `--min-confidence`. `nil` means
     /// no bar, so an absent flag never makes a run unsure.
     public var minimumConfidence: Double?
+    /// What the question prints instead of its answer when that answer is
+    /// below its bar, or when the run has a remote error, from `--fallback`
+    /// or a JSON file's `fallback`. nil when the question has none. On a
+    /// yes/no question it is the yes value or the no value, so the exit code
+    /// of a one-question run still follows a side.
+    public var fallback: String?
     /// The question's name: the id it runs under, and the key `--json`
     /// output will use. nil for an unnamed question, which runs as `q<N>`,
     /// N its position in the run.
@@ -109,6 +115,7 @@ public struct Question: Sendable, Equatable {
         instructions: String,
         kind: Kind,
         minimumConfidence: Double? = nil,
+        fallback: String? = nil,
         name: String? = nil,
         rules: [String] = [],
         detail: Detail = .answer
@@ -116,6 +123,7 @@ public struct Question: Sendable, Equatable {
         self.instructions = instructions
         self.kind = kind
         self.minimumConfidence = minimumConfidence
+        self.fallback = fallback
         self.name = name
         self.rules = rules
         self.detail = detail

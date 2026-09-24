@@ -16,11 +16,11 @@ public enum JSONQuestionFile {
     ///
     /// Each question has `instructions`: a string, or an object with a
     /// `question` and optional `rules`. It may have a `name`, a
-    /// `min-confidence`, and `stats` and `distribution` flags. `options` make
-    /// a choice, `levels` make a rating, and neither makes a yes/no question,
-    /// which `yes` and `no` sides decorate. Every problem throws a
-    /// `ConfigError` at line 0 that names the file, and the JSON path where
-    /// the problem has one.
+    /// `min-confidence`, a `fallback`, and `stats` and `distribution` flags.
+    /// `options` make a choice, `levels` make a rating, and neither makes a
+    /// yes/no question, which `yes` and `no` sides decorate. Every problem
+    /// throws a `ConfigError` at line 0 that names the file, and the JSON
+    /// path where the problem has one.
     public static func questions(from text: String, path: String) throws(ConfigError) -> [Question] {
         func fail(_ refusal: Refusal) -> ConfigError {
             let problem = refusal.path.isEmpty ? refusal.problem : "\(refusal.path): \(refusal.problem)"
@@ -212,6 +212,7 @@ private struct QuestionBody: Decodable {
     let yes: OptionBody?
     let no: OptionBody?
     let minimumConfidence: Double?
+    let fallback: String?
     let stats: Bool?
     let distribution: Bool?
 
@@ -220,7 +221,7 @@ private struct QuestionBody: Decodable {
             decoder,
             allowed: [
                 "instructions", "name", "options", "levels", "yes", "no",
-                "min-confidence", "stats", "distribution",
+                "min-confidence", "fallback", "stats", "distribution",
             ]
         )
         path = object.path
@@ -237,6 +238,7 @@ private struct QuestionBody: Decodable {
             throw Refusal(path: "\(path).min-confidence", problem: "expected \(Self.barNoun)")
         }
         minimumConfidence = bar
+        fallback = try object.optional("fallback", String.self, "a string")
         stats = try object.optional("stats", Bool.self, "true or false")
         distribution = try object.optional("distribution", Bool.self, "true or false")
     }
@@ -257,14 +259,32 @@ private struct QuestionBody: Decodable {
         guard kinds.filter({ $0 }).count <= 1 else {
             throw Refusal(path: path, problem: "question \(number) mixes options, levels, yes, or no")
         }
+        let questionKind = try kind(number: number)
+        try checkFallback(questionKind)
         return Question(
             instructions: instructions.question,
-            kind: try kind(number: number),
+            kind: questionKind,
             minimumConfidence: minimumConfidence,
+            fallback: fallback,
             name: name,
             rules: instructions.rules,
             detail: distribution == true ? .distribution : stats == true ? .stats : .answer
         )
+    }
+
+    /// Refuses a fallback that is empty or holds a tab or a line break, and
+    /// on a yes/no question one that is neither side's value.
+    private func checkFallback(_ kind: Question.Kind) throws(Refusal) {
+        guard let fallback else { return }
+        let fallbackPath = "\(path).fallback"
+        guard !fallback.isEmpty else { throw Refusal(path: fallbackPath, problem: "is empty") }
+        let breaking: Set<Unicode.Scalar> = ["\t", "\n", "\r"]
+        guard !fallback.unicodeScalars.contains(where: breaking.contains) else {
+            throw Refusal(path: fallbackPath, problem: "holds a tab or a newline")
+        }
+        if case .verdict(let yes, let no) = kind, fallback != yes.id, fallback != no.id {
+            throw Refusal(path: fallbackPath, problem: "is not the yes or no value")
+        }
     }
 
     /// The question's kind, from the one kind key it has.

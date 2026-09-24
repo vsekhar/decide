@@ -265,6 +265,45 @@ struct PlainOutputTests {
         )
     }
 
+    /// The question with `value` as its `--fallback`.
+    static func withFallback(_ question: Question, _ value: String) -> Question {
+        var question = question
+        question.fallback = value
+        return question
+    }
+
+    @Test("An unsure question with a fallback prints it, and a sure one prints its answer")
+    func unsureFallbackAnswer() {
+        let question = Self.withFallback(Self.teamQuestion(name: "team"), "human")
+        #expect(
+            PlainOutput.line(for: question, outcome: Self.unsure(Self.teamOutcome)) == "team=human"
+        )
+        #expect(PlainOutput.line(for: question, outcome: Self.teamOutcome) == "team=returns")
+    }
+
+    @Test("--stats on a fallback prints the model's numbers after it")
+    func statsOnAFallback() {
+        let question = Self.withFallback(Self.teamQuestion(detail: .stats, name: "team"), "human")
+        #expect(
+            PlainOutput.line(for: question, outcome: Self.unsure(Self.teamOutcome))
+                == "team=human\tconfidence:0.910 probability:0.910"
+        )
+    }
+
+    @Test("A remote-error fallback line is [name=]fallback with no fields, even at --distribution")
+    func fallbackLine() {
+        #expect(
+            PlainOutput.fallbackLine(
+                for: Self.withFallback(Self.teamQuestion(detail: .distribution, name: "team"), "human")
+            ) == "team=human"
+        )
+        #expect(
+            PlainOutput.fallbackLine(
+                for: Self.withFallback(Self.teamQuestion(detail: .distribution), "human")
+            ) == "human"
+        )
+    }
+
     @Test("No line ends with a newline")
     func noTrailingNewline() {
         let lines = [

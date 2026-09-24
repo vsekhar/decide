@@ -295,6 +295,92 @@ struct JSONOutputTests {
         )
     }
 
+    /// The question with `value` as its `--fallback`.
+    static func withFallback(_ question: Question, _ value: String) -> Question {
+        var question = question
+        question.fallback = value
+        return question
+    }
+
+    /// A team answer below a bar: returns, at 0.6.
+    static let unsureTeamOutcome = Outcome(
+        questionID: "q1",
+        answer: "returns",
+        confidence: 0.6,
+        probabilities: ["returns": 0.6, "shipping": 0.3, "billing": 0.1],
+        unsure: true
+    )
+    /// A refund answer below a bar: Yes, at P(yes) 0.8.
+    static let unsureRefundOutcome = Outcome(
+        questionID: "q1",
+        answer: "Yes",
+        confidence: 0.6,
+        probabilities: ["Yes": 0.8, "No": 0.2],
+        unsure: true
+    )
+
+    @Test("An unsure choice with a fallback prints it, then unsure and fallback, then the numbers")
+    func unsureChoiceFallback() {
+        let line = JSONOutput.line(
+            for: [Self.withFallback(Self.teamQuestion, "human")], outcomes: [Self.unsureTeamOutcome]
+        )
+        #expect(
+            line == """
+                {"q1":{"kind":"choice","answer":"human","unsure":true,"fallback":true,\
+                "confidence":0.6,"probabilities":{"shipping":0.3,"billing":0.1,"returns":0.6}}}
+
+                """
+        )
+    }
+
+    @Test("An unsure verdict's verdict follows its fallback, not the model's answer")
+    func unsureVerdictFallback() {
+        let no = JSONOutput.line(
+            for: [Self.withFallback(Self.refundQuestion, "No")], outcomes: [Self.unsureRefundOutcome]
+        )
+        #expect(
+            no == """
+                {"q1":{"kind":"verdict","answer":"No","unsure":true,"fallback":true,"verdict":false,\
+                "confidence":0.6,"probabilities":{"Yes":0.8,"No":0.2}}}
+
+                """
+        )
+        let yes = JSONOutput.line(
+            for: [Self.withFallback(Self.refundQuestion, "Yes")], outcomes: [Self.unsureRefundOutcome]
+        )
+        #expect(
+            yes == """
+                {"q1":{"kind":"verdict","answer":"Yes","unsure":true,"fallback":true,"verdict":true,\
+                "confidence":0.6,"probabilities":{"Yes":0.8,"No":0.2}}}
+
+                """
+        )
+    }
+
+    @Test("A sure answer to a question with a fallback prints no unsure or fallback key")
+    func sureWithFallback() {
+        let line = JSONOutput.line(
+            for: [Self.withFallback(Self.teamQuestion, "human")], outcomes: [Self.teamOutcome]
+        )
+        #expect(
+            line == JSONOutput.line(for: [Self.teamQuestion], outcomes: [Self.teamOutcome])
+        )
+    }
+
+    @Test("The remote-error fallback line has kind, answer, fallback, and a verdict, and no numbers")
+    func fallbackLine() {
+        var team = Self.withFallback(Self.teamQuestion, "human")
+        team.name = "team"
+        let line = JSONOutput.fallbackLine(for: [team, Self.withFallback(Self.refundQuestion, "No")])
+        #expect(
+            line == """
+                {"team":{"kind":"choice","answer":"human","fallback":true},\
+                "q2":{"kind":"verdict","answer":"No","fallback":true,"verdict":false}}
+
+                """
+        )
+    }
+
     @Test("The line ends with one newline")
     func oneNewline() {
         let line = JSONOutput.line(

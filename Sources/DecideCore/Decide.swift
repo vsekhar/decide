@@ -33,6 +33,9 @@ public enum Decide {
                                          the answer prints empty, the run exits 2, and stderr
                                          names the question. On a yes/no question, n means
                                          P(yes) at least (1 + n) / 2 for yes.
+          --fallback <value>             What this question prints when its answer is below
+                                         its bar, or when the model server fails. A yes/no
+                                         question's fallback is its --yes or --no value.
           --name <name>                  The question's name, an identifier: its id on the wire
                                          and in --json, and its line prints as name=answer.
           --stats                        Add a field to this question's line after a tab:
@@ -80,8 +83,11 @@ public enum Decide {
     /// one. Answers go to `stdout`, one per line, unless the run is quiet;
     /// everything else goes to `stderr`. An answer below its bar prints
     /// empty; the run reports it on `stderr` and exits 2 after every line has
-    /// printed. Before it parses the line, it reads each `--questions` file
-    /// and puts its questions in the flag's place.
+    /// printed. A question's `--fallback` prints instead of an unsure answer
+    /// and counts as decided. When the model server fails and every question
+    /// has a fallback, the fallbacks print and the run is decided; otherwise
+    /// nothing prints and the code is 11. Before it parses the line, it reads
+    /// each `--questions` file and puts its questions in the flag's place.
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
@@ -169,7 +175,17 @@ public enum Decide {
             )
         } catch {
             print(ExitCode.message(for: error), to: &stderr)
-            return ExitCode.code(for: error)
+            let code = ExitCode.code(for: error)
+            let fallbacks = invocation.questions.map(\.fallback)
+            guard code == ExitCode.remote, !fallbacks.contains(nil) else { return code }
+            if invocation.json {
+                print(JSONOutput.fallbackLine(for: invocation.questions), terminator: "", to: &stdout)
+            } else if !invocation.quiet {
+                for question in invocation.questions {
+                    print(PlainOutput.fallbackLine(for: question), to: &stdout)
+                }
+            }
+            return exitCode(for: fallbacks, questions: invocation.questions)
         }
 
         if invocation.json {
@@ -180,24 +196,25 @@ public enum Decide {
                 print(PlainOutput.line(for: question, outcome: outcome), to: &stdout)
             }
         }
+        let printed = zip(invocation.questions, outcomes).map(Runner.printedAnswer)
         let unsure = Runner.unsureQuestions(in: invocation.questions, outcomes: outcomes)
-        guard unsure.isEmpty else {
+        if !unsure.isEmpty {
             print(Unsure.report(unsure), to: &stderr)
-            return ExitCode.unsure
         }
-        return exitCode(for: outcomes, questions: invocation.questions)
+        guard !printed.contains(nil) else { return ExitCode.unsure }
+        return exitCode(for: printed, questions: invocation.questions)
     }
 
     /// The code a decided run returns. One yes/no question answers with its
-    /// exit code as well, like grep: 0 for yes, 1 for no. Every other run
-    /// returns 0.
-    private static func exitCode(for outcomes: [Outcome], questions: [Question]) -> Int32 {
+    /// exit code as well, like grep: 0 when its printed answer is the yes
+    /// value, 1 otherwise. Every other run returns 0.
+    private static func exitCode(for printed: [String?], questions: [Question]) -> Int32 {
         guard questions.count == 1, case .verdict(let yes, _) = questions[0].kind,
-              let outcome = outcomes.first
+              let answer = printed.first
         else {
             return ExitCode.decided
         }
-        return outcome.answer == yes.id ? ExitCode.decided : ExitCode.no
+        return answer == yes.id ? ExitCode.decided : ExitCode.no
     }
 
     /// Prints a usage error and the usage text to `stderr`.

@@ -166,7 +166,8 @@ $ cat triage.json
       },
       "yes": {"id": "Yes", "summary": "The policy allows a refund for this case"},
       "no":  {"id": "No",  "summary": "The policy forbids it, or the customer does not ask for money back"},
-      "min-confidence": 0.7
+      "min-confidence": 0.7,
+      "fallback": "No"
     }
   ]
 }
@@ -342,11 +343,31 @@ $ decide --context "$body" \
 stderr>  Error: cannot reach decision model server
 human
 
-# Define safe path for a script
-if decide --context "$body" "Is this message spam?" -q --fallback false; then
+# A fallback also stands in for an answer below its bar, and the run is decided
+$ decide --context @ticket.txt \
+         "Which team handles this ticket?" \
+         --name team \
+         --option shipping \
+         --option billing \
+         --option returns \
+         --min-confidence 0.95 \
+         --fallback human \
+         "Should we issue a refund?" \
+         --name refund
+team=human
+refund=yes
+
+stderr>  Unsure: question 1 ("Which team handles this ticket?") has confidence 0.91, below the bar of 0.95
+$ echo $?
+0
+
+# Define a safe path for a script; a yes/no fallback is its yes or no value
+if decide --context "$body" "Is this message spam?" -q --fallback no; then
   mv "$file" spam/     # never reached on an error
 fi
 ```
+
+`--fallback` on a question names what it prints when its answer is below its `--min-confidence` bar, or when the run has a remote error. A question that prints its fallback counts as decided. A remote error prints every fallback when every question has one; when any question has none, nothing prints and the run exits 11. A setup error never takes a fallback.
 
 ## Development
 
@@ -383,8 +404,7 @@ or switch on `$?`.
 
 Exit 2 prints every line, and the unsure ones are empty. Check the code before you read stdout.
 
-`--fallback` turns an unsure answer (exit code 2) and a remote error (exit code 11) into decisions (exit code 0) and prints
-the fallback value. With one yes/no question it returns the code of the fallback's side, or the fallback exit code.
+`--fallback` on a question makes an unsure answer a decision, and a remote error too when every question has one. With one yes/no question the fallback is its yes or no value, and the code follows that side.
 
 In a stream, 10 stops the run at once. 2 and 11 are per event: the event
 gets an error line or its fallback, the stream goes on, and the final code

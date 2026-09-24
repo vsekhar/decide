@@ -230,7 +230,8 @@ let readmeTriageJSON = """
           },
           "yes": {"id": "Yes", "summary": "The policy allows a refund for this case"},
           "no":  {"id": "No",  "summary": "The policy forbids it, or the customer does not ask for money back"},
-          "min-confidence": 0.7
+          "min-confidence": 0.7,
+          "fallback": "No"
         }
       ]
     }
@@ -517,6 +518,18 @@ struct QuestionFileExpansionTests {
                     "Q", "--stats", "--name", "x",
                     "R", "--distribution", "--name=y", "--min-confidence", "0.5",
                 ])
+        )
+    }
+
+    @Test("--fallback passes in a file, in either value form")
+    func fallbackFlag() throws {
+        let result = try expand(
+            ["--questions", "@\(path)"],
+            files: [path: "Q --option a --fallback human R --fallback=no"]
+        )
+        #expect(
+            result
+                == items(["Q", "--option", "a", "--fallback", "human", "R", "--fallback=no"])
         )
     }
 

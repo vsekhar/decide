@@ -12,17 +12,18 @@ import Foundation
 /// holds a tab, so no field of a line can split in two.
 ///
 /// An answer below the question's `--min-confidence` bar prints as nothing,
-/// so the line is `name=` or empty. The fields after it are the model's
-/// numbers as they stand, and `probability:` is the probability of the
-/// answer the model would have given. The run exits 2 and names the
-/// question on stderr.
+/// so the line is `name=` or empty, or as the question's `--fallback` when
+/// it has one. The fields after it are the model's numbers as they stand,
+/// and `probability:` is the probability of the answer the model would have
+/// given, fallback or not. The run names the question on stderr either way,
+/// and exits 2 when an unsure question has no fallback.
 public enum PlainOutput {
     /// The line for one answer, with no trailing newline: the caller prints
     /// it. `question` and `outcome` are one pair, as `Runner.decide` gives
     /// them.
     public static func line(for question: Question, outcome: Outcome) -> String {
-        let answer = outcome.unsure ? "" : outcome.answer
-        var line = (question.name.map { "\($0)=" } ?? "") + answer
+        let answer = Runner.printedAnswer(for: question, outcome: outcome) ?? ""
+        var line = prefix(question) + answer
         guard question.detail != .answer else { return line }
         line +=
             "\t" + "confidence:" + number(outcome.confidence)
@@ -49,6 +50,18 @@ public enum PlainOutput {
             }
         }
         return line
+    }
+
+    /// The line for a question on a run the model server failed, when every
+    /// question has a fallback: `[name=]fallback` and nothing after it,
+    /// because there are no numbers, even with `--stats`.
+    public static func fallbackLine(for question: Question) -> String {
+        prefix(question) + (question.fallback ?? "")
+    }
+
+    /// `name=` for a named question, and nothing for an unnamed one.
+    private static func prefix(_ question: Question) -> String {
+        question.name.map { "\($0)=" } ?? ""
     }
 
     /// One distribution field: a tab, the label, a colon, and the number.

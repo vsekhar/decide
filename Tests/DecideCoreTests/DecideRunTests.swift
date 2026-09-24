@@ -1316,6 +1316,265 @@ struct DecideRunTests {
         #expect(out.isEmpty)
     }
 
+    /// The README's second Errors example: the named team question with a
+    /// bar of 0.95 and the fallback human, then the named refund question.
+    private static let readmeFallbackBatch =
+        ["--context", "some ticket text"] + namedTeamQuestion
+        + ["--min-confidence", "0.95", "--fallback", "human"]
+        + ["Should we issue a refund?", "--name", "refund"]
+
+    @Test("The README's fallback example prints team=human and refund=yes, names the bar, and exits 0")
+    func readmeFallback() async {
+        var out = ""
+        var err = ""
+
+        // The team answer has confidence 0.91, below the bar of 0.95.
+        let code = await Decide.run(
+            arguments: Self.readmeFallbackBatch,
+            environment: [:],
+            model: Self.model(answering: [Self.teamAnswer, .verdict(probability: 0.87)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "team=human\nrefund=yes\n")
+        #expect(
+            err == """
+                Unsure: question 1 ("Which team handles this ticket?") has confidence 0.91, \
+                below the bar of 0.95
+
+                """
+        )
+    }
+
+    @Test("The README's fallback example without its fallback prints team= and exits 2")
+    func readmeFallbackWithout() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "some ticket text"] + Self.namedTeamQuestion
+                + ["--min-confidence", "0.95"]
+                + ["Should we issue a refund?", "--name", "refund"],
+            environment: [:],
+            model: Self.model(answering: [Self.teamAnswer, .verdict(probability: 0.87)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out == "team=\nrefund=yes\n")
+        #expect(err.hasPrefix("Unsure: question 1 "))
+    }
+
+    @Test("A yes/no question below its bar prints its fallback and exits with that side")
+    func unsureVerdictFallback() async {
+        // P(yes) 0.8 is confidence 0.60, below the bar of 0.90.
+        for (fallback, expected) in [("no", Int32(1)), ("yes", Int32(0))] {
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: Self.spamQuestion + ["--min-confidence", "0.9", "--fallback", fallback],
+                environment: [:],
+                model: Self.spamModel(probability: 0.8),
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == expected, "\(fallback)")
+            #expect(out == "\(fallback)\n")
+            #expect(
+                err == """
+                    Unsure: question 1 ("Is this message spam?") has confidence 0.60, \
+                    below the bar of 0.90
+
+                    """
+            )
+        }
+    }
+
+    @Test("-q with a yes/no question below its bar and --fallback no prints nothing and exits 1")
+    func quietUnsureVerdictFallback() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["--min-confidence", "0.9", "-q", "--fallback", "no"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 1)
+        #expect(out.isEmpty)
+        #expect(err.hasPrefix("Unsure: question 1 "))
+    }
+
+    @Test("--json on the README's fallback example marks the fallback and keeps the numbers")
+    func jsonFallback() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.readmeFallbackBatch + ["--json"],
+            environment: [:],
+            model: Self.model(answering: [Self.teamAnswer, .verdict(probability: 0.87)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == """
+                {"team":{"kind":"choice","answer":"human","unsure":true,"fallback":true,\
+                "confidence":0.91,"probabilities":{"shipping":0.06,"billing":0.03,"returns":0.91}},\
+                "refund":{"kind":"verdict","answer":"yes","verdict":true,\
+                "confidence":\(AnswerRecord.verdict(probability: 0.87).confidence),\
+                "probabilities":{"yes":0.87,"no":0.13}}}
+
+                """
+        )
+        #expect(err.hasPrefix("Unsure: question 1 "))
+    }
+
+    @Test("A timeout with a fallback on every question prints the fallbacks and exits 0")
+    func timeoutWithFallbacks() async {
+        let model = ScriptedModel { _ in throw DecisionError.timeout }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.readmeFallbackBatch + ["--distribution", "--fallback", "no"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "team=human\nrefund=no\n")
+        #expect(err == "Error: the request timed out.\n")
+    }
+
+    @Test("A timeout on one yes/no question prints its fallback and exits with that side")
+    func timeoutWithVerdictFallback() async {
+        let model = ScriptedModel { _ in throw DecisionError.timeout }
+        for (fallback, expected) in [("no", Int32(1)), ("yes", Int32(0))] {
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: Self.spamQuestion + ["--fallback", fallback],
+                environment: [:],
+                model: model,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == expected, "\(fallback)")
+            #expect(out == "\(fallback)\n")
+            #expect(err == "Error: the request timed out.\n")
+        }
+    }
+
+    @Test("-q on a timeout with --fallback no prints nothing and exits 1")
+    func quietTimeoutWithVerdictFallback() async {
+        let model = ScriptedModel { _ in throw DecisionError.timeout }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.spamQuestion + ["-q", "--fallback", "no"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 1)
+        #expect(out.isEmpty)
+        #expect(err == "Error: the request timed out.\n")
+    }
+
+    @Test("A timeout with a question that has no fallback prints nothing and exits 11")
+    func timeoutWithoutEveryFallback() async {
+        let model = ScriptedModel { _ in throw DecisionError.timeout }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.readmeFallbackBatch,
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 11)
+        #expect(out.isEmpty)
+        #expect(err == "Error: the request timed out.\n")
+    }
+
+    @Test("--json on a timeout with every fallback prints the fallbacks with no numbers")
+    func jsonTimeoutWithFallbacks() async {
+        let model = ScriptedModel { _ in throw DecisionError.timeout }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.readmeFallbackBatch + ["--fallback", "no", "--json"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(
+            out == """
+                {"team":{"kind":"choice","answer":"human","fallback":true},\
+                "refund":{"kind":"verdict","answer":"no","fallback":true,"verdict":false}}
+
+                """
+        )
+        #expect(err == "Error: the request timed out.\n")
+    }
+
+    @Test("A setup error from the model takes no fallback: nothing prints and the run exits 10")
+    func unauthorizedWithFallbacks() async {
+        let model = ScriptedModel { _ in throw DecisionError.unauthorized }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: Self.readmeFallbackBatch + ["--fallback", "no"],
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(out.isEmpty)
+        #expect(err.hasPrefix("Error: "))
+    }
+
+    @Test("The usage text lists --fallback")
+    func usageListsFallback() {
+        #expect(
+            Decide.usage.contains(
+                """
+                  --fallback <value>             What this question prints when its answer is below
+                                                 its bar, or when the model server fails. A yes/no
+                                                 question's fallback is its --yes or --no value.
+                """
+            )
+        )
+    }
+
     @Test("A project config supplies the model")
     func modelFromProjectConfig() async throws {
         let tree = try ConfigTree(project: #"DECIDE_MODEL = "nosuch:model""#)
@@ -2091,7 +2350,7 @@ struct DecideRunTests {
         #expect(model.callCount == 0)
     }
 
-    @Test("A JSON file's refund below the file's bar prints refund= and exits 2")
+    @Test("A JSON file's refund below the file's bar prints its fallback refund=No and exits 0")
     func jsonFileUnsure() async throws {
         let path = try Self.questionFile(readmeTriageJSON)
         defer { try? FileManager.default.removeItem(atPath: path) }
@@ -2109,8 +2368,8 @@ struct DecideRunTests {
             stderr: &err
         )
 
-        #expect(code == 2)
-        #expect(out == "team=returns\nurgency=somewhat_urgent\nrefund=\n")
+        #expect(code == 0)
+        #expect(out == "team=returns\nurgency=somewhat_urgent\nrefund=No\n")
         #expect(
             err == """
                 Unsure: question 3 ("Should we issue a refund?") has confidence 0.60, \

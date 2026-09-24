@@ -904,6 +904,145 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--fallback sets the question's fallback, in either value form")
+    func fallbackForms() throws {
+        for tokens in [["--fallback", "human"], ["--fallback=human"]] {
+            let result = try CommandLineParser.parse(
+                ["--context", "c", "Q", "--option", "shipping", "--option", "returns"] + tokens
+            )
+            #expect(
+                result
+                    == .run(
+                        Invocation(
+                            context: .single(.text("c")),
+                            questions: [
+                                Question(
+                                    instructions: "Q",
+                                    kind: .choice([Option(id: "shipping"), Option(id: "returns")]),
+                                    fallback: "human"
+                                )
+                            ]
+                        )
+                    )
+            )
+        }
+    }
+
+    @Test("--fallback on a rating takes any value, with or without a bar")
+    func fallbackOnRating() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "c", "Q", "--level", "low", "--level", "high", "--fallback", "a=b",
+            "R", "--level", "low", "--level", "high", "--min-confidence", "0.5", "--fallback", "x",
+        ])
+        #expect(fallbacks(result) == ["a=b", "x"])
+    }
+
+    @Test("A question with no --fallback has none")
+    func noFallback() throws {
+        let result = try CommandLineParser.parse(["--context", "c", "Q", "--option", "a"])
+        #expect(fallbacks(result) == [nil])
+    }
+
+    @Test("A yes/no fallback with the default sides is yes or no, and nothing else")
+    func fallbackOnDefaultSides() throws {
+        for side in ["yes", "no"] {
+            let result = try CommandLineParser.parse(["--context", "c", "Q", "--fallback", side])
+            #expect(fallbacks(result) == [side])
+        }
+        #expect(
+            throws: UsageError(
+                "question 1 (\"Q\") has a fallback \"maybe\" that is not its --yes or --no value"
+            )
+        ) {
+            try CommandLineParser.parse(["--context", "c", "Q", "--fallback", "maybe"])
+        }
+    }
+
+    @Test("A yes/no fallback is checked against the sides --yes and --no set")
+    func fallbackOnNamedSides() throws {
+        let result = try CommandLineParser.parse([
+            "--context", "c", "Q", "--yes", "spam", "--no", "ham", "--fallback", "ham",
+        ])
+        #expect(fallbacks(result) == ["ham"])
+        #expect(
+            throws: UsageError(
+                "question 1 (\"Q\") has a fallback \"no\" that is not its --yes or --no value"
+            )
+        ) {
+            try CommandLineParser.parse([
+                "--context", "c", "Q", "--yes", "spam", "--no", "ham", "--fallback", "no",
+            ])
+        }
+    }
+
+    @Test("A --fallback before --yes and --no is checked against the final sides")
+    func fallbackBeforeSides() {
+        #expect(
+            throws: UsageError(
+                "question 1 (\"Q\") has a fallback \"no\" that is not its --yes or --no value"
+            )
+        ) {
+            try CommandLineParser.parse([
+                "--context", "c", "Q", "--fallback", "no", "--yes", "spam", "--no", "ham",
+            ])
+        }
+    }
+
+    @Test("A repeated --fallback is an error that names the question")
+    func repeatedFallback() {
+        #expect(throws: UsageError("question 1 (\"Q\") repeats --fallback")) {
+            try CommandLineParser.parse([
+                "--context", "c", "Q", "--option", "a", "--fallback", "x", "--fallback", "y",
+            ])
+        }
+    }
+
+    @Test("An empty --fallback is an error, in either value form")
+    func emptyFallback() {
+        for tokens in [["--fallback", ""], ["--fallback="]] {
+            #expect(throws: UsageError("a --fallback has no value"), "\(tokens)") {
+                try CommandLineParser.parse(["--context", "c", "Q", "--option", "a"] + tokens)
+            }
+        }
+    }
+
+    @Test("A --fallback with a tab, a line feed, or a carriage return is an error")
+    func fallbackWithBreak() {
+        for value in ["a\tb", "a\nb", "a\rb"] {
+            #expect(throws: UsageError("a --fallback value holds a tab or newline"), "\(value)") {
+                try CommandLineParser.parse(["--context", "c", "Q", "--option", "a", "--fallback", value])
+            }
+        }
+    }
+
+    @Test("--fallback before any question is an error")
+    func fallbackBeforeQuestion() {
+        #expect(throws: UsageError("--fallback before any question")) {
+            try CommandLineParser.parse(["--context", "c", "--fallback", "x", "Q"])
+        }
+    }
+
+    @Test("-q takes a yes/no question with a --fallback")
+    func quietWithFallback() throws {
+        let result = try CommandLineParser.parse(["--context", "c", "Q", "-q", "--fallback", "no"])
+        #expect(
+            result
+                == .run(
+                    Invocation(
+                        context: .single(.text("c")),
+                        questions: [
+                            Question(
+                                instructions: "Q",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no")),
+                                fallback: "no"
+                            )
+                        ],
+                        quiet: true
+                    )
+                )
+        )
+    }
+
     @Test("--name sets the question's name in either value form")
     func nameForms() throws {
         for line in [
@@ -1575,8 +1714,8 @@ struct CommandLineParserTests {
         let finished = Question(instructions: "F", kind: .choice([Option(id: "a")]))
         let flags = [
             ["--option", "x"], ["--level", "x"], ["--yes", "x"], ["--no", "x"],
-            ["--min-confidence", "0.5"], ["--name", "n"], ["--stats"], ["--distribution"],
-            ["--option=x"], ["--name=n"],
+            ["--min-confidence", "0.5"], ["--fallback", "x"], ["--name", "n"], ["--stats"],
+            ["--distribution"], ["--option=x"], ["--name=n"], ["--fallback=x"],
         ]
         for flag in flags {
             let name = flag[0].prefix { $0 != "=" }
@@ -1632,6 +1771,15 @@ struct CommandLineParserTests {
             return []
         }
         return invocation.questions.map(\.minimumConfidence)
+    }
+
+    /// The fallback on every question a parse produced, in question order.
+    private func fallbacks(_ result: ParseResult) -> [String?] {
+        guard case .run(let invocation) = result else {
+            Issue.record("Expected a run, got \(result).")
+            return []
+        }
+        return invocation.questions.map(\.fallback)
     }
 
     /// One question with one option, for the tests that check the context.

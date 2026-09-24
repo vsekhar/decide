@@ -18,7 +18,8 @@ public struct Outcome: Sendable, Equatable {
     public let score: Double?
     /// Whether the answer fell below the question's `--min-confidence` bar.
     /// The numbers above are the model's either way. The line for an unsure
-    /// question prints no answer, and the run exits 2.
+    /// question prints its fallback or no answer, and the run exits 2 when
+    /// it has no fallback.
     public var unsure: Bool
 
     public init(
@@ -171,6 +172,14 @@ public enum Runner {
         }
     }
 
+    /// What a question's line shows: the outcome's answer when it cleared
+    /// its bar, the question's fallback when it did not and has one, and nil
+    /// when it did not and has none, which prints as an empty answer. Plain
+    /// output, JSON output, and the exit code all read this, so they agree.
+    public static func printedAnswer(for question: Question, outcome: Outcome) -> String? {
+        outcome.unsure ? question.fallback : outcome.answer
+    }
+
     /// Turns a rating record into an outcome against the question's levels.
     ///
     /// The answer is the id of the most likely level, and a tie goes to the
@@ -236,7 +245,7 @@ public enum Runner {
 
     /// The id the question at `index` runs under: its name, or `q<N>` for
     /// the first, second, and so on.
-    private static func identifier(for question: Question, at index: Int) -> String {
+    static func identifier(for question: Question, at index: Int) -> String {
         question.name ?? "q\(index + 1)"
     }
 

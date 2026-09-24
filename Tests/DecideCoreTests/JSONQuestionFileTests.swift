@@ -81,7 +81,8 @@ private let triage = """
           },
           "yes": {"id": "Yes", "summary": "The policy allows a refund for this case"},
           "no":  {"id": "No",  "summary": "The policy forbids it, or the customer does not ask for money back"},
-          "min-confidence": 0.7
+          "min-confidence": 0.7,
+          "fallback": "No"
         }
       ]
     }
@@ -157,6 +158,7 @@ struct JSONQuestionFileTests {
                         )
                     ),
                     minimumConfidence: 0.7,
+                    fallback: "No",
                     name: "refund",
                     rules: [
                         "Apply `refund_policy` to the `ticket`.",
@@ -344,6 +346,48 @@ struct JSONQuestionFileTests {
         let problem = "questions[0].min-confidence: expected a number from 0 to 1"
         #expect(throws: failure(problem)) {
             try decode(file(#""instructions": "Is this spam?", "min-confidence": "0.7""#))
+        }
+    }
+
+    @Test("fallback sets the question's fallback")
+    func fallback() throws {
+        let questions = try decode(
+            file(#""instructions": "Which team?", "options": [{"id": "a"}], "fallback": "human""#)
+        )
+        #expect(questions.map(\.fallback) == ["human"])
+    }
+
+    @Test("An empty fallback is refused")
+    func emptyFallback() {
+        #expect(throws: failure("questions[0].fallback: is empty")) {
+            try decode(file(#""instructions": "Which team?", "options": [{"id": "a"}], "fallback": """#))
+        }
+    }
+
+    @Test("A fallback holding a tab or a newline is refused", arguments: [#"a\tb"#, #"a\nb"#, #"a\rb"#])
+    func breakingFallback(value: String) {
+        let text = file(#""instructions": "Which team?", "options": [{"id": "a"}], "fallback": "\#(value)""#)
+        #expect(throws: failure("questions[0].fallback: holds a tab or a newline")) {
+            try decode(text)
+        }
+    }
+
+    @Test("A yes/no fallback that is neither side's value is refused")
+    func fallbackNotASide() throws {
+        let sides = #""instructions": "Is this spam?", "yes": {"id": "spam"}, "no": {"id": "ham"}"#
+        #expect(try decode(file(sides + #", "fallback": "ham""#)).map(\.fallback) == ["ham"])
+        #expect(throws: failure("questions[0].fallback: is not the yes or no value")) {
+            try decode(file(sides + #", "fallback": "no""#))
+        }
+        #expect(throws: failure("questions[0].fallback: is not the yes or no value")) {
+            try decode(file(#""instructions": "Is this spam?", "fallback": "maybe""#))
+        }
+    }
+
+    @Test("A fallback that is not a string is refused")
+    func fallbackNotString() {
+        #expect(throws: failure("questions[0].fallback: expected a string")) {
+            try decode(file(#""instructions": "Which team?", "options": [{"id": "a"}], "fallback": 1"#))
         }
     }
 

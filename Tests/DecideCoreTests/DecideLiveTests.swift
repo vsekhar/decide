@@ -135,10 +135,10 @@ struct DecideLiveTests {
             stderr: &err
         )
 
-        // The refund question's bar is 0.7, so a model that is not sure
-        // exits 2, prints refund= on its line, and names it on stderr.
-        #expect(code == 0 || code == 2)
-        #expect(code == 2 ? err.hasPrefix("Unsure: question 3 ") : err.isEmpty)
+        // The refund question's bar is 0.7 and its fallback is No, so the
+        // run is decided either way: a model that is not sure prints the
+        // fallback and names the question on stderr.
+        #expect(code == 0)
         // One name=answer line per question, in file order.
         let lines = out.split(separator: "\n").map(String.init)
         #expect(out.hasSuffix("\n"))
@@ -148,8 +148,12 @@ struct DecideLiveTests {
         #expect(
             ["urgency=not_urgent", "urgency=somewhat_urgent", "urgency=urgent"].contains(lines[1])
         )
-        let refunds = code == 2 ? ["refund="] : ["refund=Yes", "refund=No"]
-        #expect(refunds.contains(lines[2]))
+        if err.isEmpty {
+            #expect(["refund=Yes", "refund=No"].contains(lines[2]))
+        } else {
+            #expect(err.hasPrefix("Unsure: question 3 "))
+            #expect(lines[2] == "refund=No")
+        }
     }
 
     @Test("decide answers a question with no context")

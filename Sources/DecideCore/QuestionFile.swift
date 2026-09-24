@@ -75,7 +75,7 @@ public enum QuestionFile {
     /// The flags a file may hold that take a value, as `--flag value` or
     /// `--flag=value`.
     private static let valueFlags = [
-        "--option", "--level", "--yes", "--no", "--min-confidence", "--name",
+        "--option", "--level", "--yes", "--no", "--min-confidence", "--fallback", "--name",
     ]
 
     /// The flags a file may hold that take no value.

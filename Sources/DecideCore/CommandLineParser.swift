@@ -42,12 +42,15 @@ public enum CommandLineParser {
     /// joins that question and sets its kind. A question with neither is a
     /// yes/no question; `--yes` and `--no` set what it prints.
     /// `--min-confidence` after a question sets the confidence its answer
-    /// needs. `--name` after a question gives it a name, an identifier that
-    /// is unique in the run; its line prints as `name=answer`. `--stats`
-    /// after a question adds its numbers to its line, and `--distribution`
-    /// adds those and one field per option, level, or side; neither goes
-    /// with `--quiet`. An `--option`, `--level`, `--yes`, or `--no` id holds
-    /// no tab or newline: a tab separates the fields those two flags add.
+    /// needs. `--fallback` after a question names what it prints when its
+    /// answer is below its bar or the run has a remote error; on a yes/no
+    /// question it is the yes or no value. `--name` after a question gives it
+    /// a name, an identifier that is unique in the run; its line prints as
+    /// `name=answer`. `--stats` after a question adds its numbers to its
+    /// line, and `--distribution` adds those and one field per option, level,
+    /// or side; neither goes with `--quiet`. An `--option`, `--level`,
+    /// `--yes`, or `--no` id holds no tab or newline: a tab separates the
+    /// fields those two flags add.
     /// `--quiet` or `-q` keeps the one yes/no question's answer off stdout.
     /// `--json` prints the answers as one JSON object, and does not go with
     /// `--quiet`. `--context` is optional; without it the questions run
@@ -168,6 +171,13 @@ public enum CommandLineParser {
                     of: "--min-confidence", token: token, arguments: arguments, index: &index
                 ) {
                     try setMinimumConfidence(value, to: &entries)
+                    continue
+                }
+
+                if let value = try flagValue(
+                    of: "--fallback", token: token, arguments: arguments, index: &index
+                ) {
+                    try setFallback(value, to: &entries)
                     continue
                 }
 
@@ -328,9 +338,9 @@ public enum CommandLineParser {
     /// under it, and stays `nil` until one arrives. `yes` and `no` hold the
     /// two sides of a yes/no question in any order, so a repeat of either flag
     /// is its own error. `minimumConfidence` is the bar `--min-confidence`
-    /// sets, on a question of any kind. `name` is the identifier `--name`
-    /// gives it, or nil. `stats` and `distribution` are the two flags that
-    /// add to its line.
+    /// sets, and `fallback` the value `--fallback` sets, on a question of any
+    /// kind. `name` is the identifier `--name` gives it, or nil. `stats` and
+    /// `distribution` are the two flags that add to its line.
     private struct QuestionBuilder {
         let instructions: String
         var flag: KindFlag?
@@ -338,6 +348,7 @@ public enum CommandLineParser {
         var yes: Option?
         var no: Option?
         var minimumConfidence: Double?
+        var fallback: String?
         var name: String?
         var stats = false
         var distribution = false
@@ -369,6 +380,7 @@ public enum CommandLineParser {
                     instructions: instructions,
                     kind: .choice(values),
                     minimumConfidence: minimumConfidence,
+                    fallback: fallback,
                     name: name,
                     detail: detail
                 )
@@ -380,6 +392,7 @@ public enum CommandLineParser {
                     instructions: instructions,
                     kind: .rating(values),
                     minimumConfidence: minimumConfidence,
+                    fallback: fallback,
                     name: name,
                     detail: detail
                 )
@@ -390,17 +403,24 @@ public enum CommandLineParser {
 
         /// The finished yes/no question. A side the user left out takes its
         /// default value. Throws when the two sides print the same value,
-        /// which would make the two probabilities one.
+        /// which would make the two probabilities one, and when the fallback
+        /// is neither side's value.
         private func verdict(number: Int) throws(UsageError) -> Question {
             let yesSide = yes ?? Option(id: "yes")
             let noSide = no ?? Option(id: "no")
             guard yesSide.id != noSide.id else {
                 throw UsageError("\(label(number)) uses the same value for --yes and --no")
             }
+            if let fallback, fallback != yesSide.id, fallback != noSide.id {
+                throw UsageError(
+                    "\(label(number)) has a fallback \"\(fallback)\" that is not its --yes or --no value"
+                )
+            }
             return Question(
                 instructions: instructions,
                 kind: .verdict(yes: yesSide, no: noSide),
                 minimumConfidence: minimumConfidence,
+                fallback: fallback,
                 name: name,
                 detail: detail
             )
@@ -547,6 +567,28 @@ public enum CommandLineParser {
             throw UsageError("--min-confidence needs a number from 0 to 1, got \"\(value)\"")
         }
         builder.minimumConfidence = bar
+        entries[last] = .building(builder)
+    }
+
+    /// Sets the fallback on the last question. Every kind takes the flag, and
+    /// each question takes it once. The value is not empty and holds no tab,
+    /// line feed, or carriage return, the same rule as an id. A yes/no
+    /// question checks it against its sides when it is built, because
+    /// `--yes` and `--no` may come after it.
+    private static func setFallback(
+        _ value: String,
+        to entries: inout [Entry]
+    ) throws(UsageError) {
+        var (last, builder) = try lastBuilder(entries, for: "--fallback")
+        guard builder.fallback == nil else {
+            throw UsageError("\(builder.label(last + 1)) repeats --fallback")
+        }
+        guard !value.isEmpty else { throw UsageError("a --fallback has no value") }
+        let forbidden: Set<Unicode.Scalar> = ["\t", "\n", "\r"]
+        guard !value.unicodeScalars.contains(where: forbidden.contains) else {
+            throw UsageError("a --fallback value holds a tab or newline")
+        }
+        builder.fallback = value
         entries[last] = .building(builder)
     }
 
