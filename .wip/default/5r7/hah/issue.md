@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:25:20-04:00
-updated: 2026-09-23T01:25:20-04:00
+updated: 2026-09-23T23:37:06-04:00
 blocked-on:
   - g3q
 may-unblock:
@@ -32,13 +32,13 @@ Second child of the JSON question files parent; blocked on the model child (the 
 
 Schema, with the README's example as the reference:
 - Top level: an object with one key, `questions`, an array with at least one element. Any other top-level key: `unknown key "x"`. A top-level array or scalar: `a question file is an object with a questions array`.
-- Each question: `instructions` (required): a string, or an object with `question` (required string) and `rules` (optional array of strings), no other keys. `name` (optional): an identifier, a letter or `_` then letters, digits, or `_`; the same rule as a context name (wip/ndr). Exactly one kind: `options` (array of option objects, at least one) makes a choice; `levels` (array of level objects, at least two) makes a rating; neither makes a verdict, whose `yes` and `no` (each optional) are side objects. `options` or `levels` together with `yes` or `no`, or both `options` and `levels`, is `question <n> mixes options, levels, yes, or no`. `min-confidence` (optional): a number from 0 to 1. Any other key: `unknown key "x"`.
+- Each question: `instructions` (required): a string, or an object with `question` (required string) and `rules` (optional array of strings), no other keys. `name` (optional): an identifier, a letter or `_` then letters, digits, or `_`; the same rule as a context name (wip/ndr). Exactly one kind: `options` (array of option objects, at least one) makes a choice; `levels` (array of level objects, at least two) makes a rating; neither makes a verdict, whose `yes` and `no` (each optional) are side objects. `options` or `levels` together with `yes` or `no`, or both `options` and `levels`, is `question <n> mixes options, levels, yes, or no`. `min-confidence` (optional): a number from 0 to 1. `stats` and `distribution` (each optional): a boolean, from wip/mb3; either or both true is `Question.detail` `.distribution` when `distribution` is true, else `.stats`. Any other key: `unknown key "x"`. An option, level, or side `id` is a non-empty string holding no `=`, tab, or newline, so a plain line stays parseable (wip/1cy); the message is `questions[0].options[1].id: holds =, a tab, or a newline`.
 - Each option, level, or side object: `id` (required, non-empty string; for a verdict side it is the value printed, as `--yes <value>` is), `summary` (optional string; when absent the id serves, as on the command line), `not_for` (optional string), `examples` and `signals` (optional arrays of strings). Any other key: unknown. A repeated id within one question's options or levels is `question <n> repeats the option "x"` / `the level "x"`; `yes` and `no` with the same id is `question <n> uses the same value for yes and no`, the parser's wording.
 - Names must be unique within the file: `question name "team" is used twice`. Names unique across a whole run are the splice child's job.
 
 Messages: `ConfigError(path: path, line: 0, problem: "<json path>: <problem>")`, for example `questions[1].levels: a rating needs at least two levels` or `questions[0].options[2]: unknown key "sumary"`. Foundation's decoding errors give a coding path; render it as `questions[i].key`. A syntax error is `not valid JSON` plus Foundation's own description when it holds no file content (an offset is fine); no value from the file lands in a message. Line 0 keeps the message shape `Error: <path>: <problem>`.
 
-Mapping to `Question`: `instructions` is the string or the object's `question`; `rules` is the object's `rules` or `[]`; `name`; `minimumConfidence` from `min-confidence`; options and levels become `Option(id:, description: summary, notFor:, examples:, signals:)`; a verdict's sides likewise, with `Option(id: "yes")` / `Option(id: "no")` when absent, as the parser defaults.
+Mapping to `Question`: `instructions` is the string or the object's `question`; `rules` is the object's `rules` or `[]`; `name`; `minimumConfidence` from `min-confidence`; `detail` from `stats` and `distribution`; options and levels become `Option(id:, description: summary, notFor:, examples:, signals:)`; a verdict's sides likewise, with `Option(id: "yes")` / `Option(id: "no")` when absent, as the parser defaults.
 
 Unknown keys: decode each object into `[String: JSONValue]`-style dictionaries or use a custom `init(from:)` that lists allowed keys, so unknown keys are refused; a plain `Decodable` struct ignores them silently, which the strictness rule forbids.
 
@@ -57,3 +57,9 @@ Parent: JSON question files. Blocked on the model child. The splice child consum
 - [ ] The README's `triage.json` decodes to the three questions exactly.
 - [ ] Every rule above is tested, each refusal names the path, the JSON path, and the construct, and no message holds a value from the file.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean and `swift test --skip DecideLive` passes.
+
+---
+
+_📝 Noted on 2026-09-23 23:37:06-04:00 @ git:8fc9672+local_
+
+Amended 2026-09-23 while filing wip/1cy: the schema takes optional boolean stats and distribution keys mapping to Question.detail (wip/mb3), and an option, level, or side id is refused when it holds =, a tab, or a newline, so plain output lines stay parseable. Question.detail lands with wip/mb3; if this issue goes first, decode the keys into the fields it adds then, or land mb3's model change first.

@@ -2,7 +2,7 @@
 priority: p2
 type: task
 created: 2026-09-23T01:04:39-04:00
-updated: 2026-09-23T01:35:01-04:00
+updated: 2026-09-23T23:37:06-04:00
 blocked-on:
   - jt3
 may-unblock:
@@ -33,7 +33,7 @@ Part of the `--questions` parent; blocked on the tokenizer sibling (`QuestionFil
 
 **Expansion.** `public static func expanding(_ arguments: [String], read: (String) throws(ConfigReadError) -> String?) throws -> [Item]` on `QuestionFile`, where `public enum Item: Equatable, Sendable { case token(String); case questions([Question]) }`. A command-line argument and every token of a text file become `.token`; `.questions` is for JSON files, which the JSON child issue adds, and this issue never produces it. `CommandLineParser.parse(_ arguments: [String])` stays and becomes a wrapper over a new `public static func parse(items: [Item])`, whose main loop treats a `.questions` item as finished questions appended at that position; a question flag (`--option`, `--level`, `--yes`, `--no`, `--min-confidence`) right after a `.questions` item throws `UsageError("<flag> after --questions belongs to no question")`, and `--quiet`'s one-yes/no-question rule counts them. This issue adds the enum, the wrapper, and the `.questions` handling with a unit test that feeds `parse(items:)` a `.questions` item directly, so the seam is proved before any JSON exists. It returns the arguments unchanged when the line holds `--version`, `--help`, `-h`, or `--set-config`, using the same predicate `parse` uses for its pre-scan (factor it into `CommandLineParser.takesTheLine(_:)`, internal), so help and version still win over a bad file and `--set-config` still reports "runs alone". Otherwise it walks the arguments: `--questions <value>` and `--questions=<value>` (the `flagValue` shape; make that helper internal so this reuses it) are replaced by the value's tokens; every other token passes through. A value `@<path>` reads the file through `read`: nil is `ConfigError(path, 0, "no such file")`; `.unreadable` and `.notUTF8` map as `ConfigFiles.error(_:at:)` does (reuse it). A value with no `@` is the text itself, tokenized with the path `"--questions"` for messages. `@` alone throws `UsageError("--questions @ names no file")`; a missing value is `flagValue`'s `--questions needs a value`. A text whose first token starts with `{` throws `ConfigError(path, line, "JSON question files are not supported yet")`.
 
-Each file's tokens are checked before splicing: the first token may not start with `-` (`ConfigError(path, line, "a question file starts with a question, not a flag")`); every later token that starts with `-` must be `--option`, `--level`, `--yes`, `--no`, or `--min-confidence`, alone or in the `=value` form, else `ConfigError(path, line, "<flag> is not allowed in a question file")`; the token after a bare value flag is its value and is not checked. A file with no tokens contributes nothing. The tokens' texts are spliced in; their lines serve only these messages.
+Each file's tokens are checked before splicing: the first token may not start with `-` (`ConfigError(path, line, "a question file starts with a question, not a flag")`); every later token that starts with `-` must be `--option`, `--level`, `--yes`, `--no`, `--min-confidence`, `--name`, `--stats`, or `--distribution`, alone or in the `=value` form (`--stats` and `--distribution` take no value), else `ConfigError(path, line, "<flag> is not allowed in a question file")`; the token after a bare value flag is its value and is not checked. A file with no tokens contributes nothing. The tokens' texts are spliced in; their lines serve only these messages.
 
 **Parser.** `--questions` reaching `parse` (only when a caller skips expansion, as tests may) throws `--questions needs a value` for a bare flag or, with a value, `UsageError("--questions was not expanded")`; the point is that `parse` never reads a file.
 
@@ -80,3 +80,9 @@ Amended 2026-09-23 while filing JSON question files: the expansion returns items
 _📝 Noted on 2026-09-23 01:35:01-04:00 @ git:5da7fb9+local_
 
 Coordination 2026-09-23: the --name flag (issue byu) is a question flag, so a text question file may hold it. Add --name to the allowed list here if byu has landed; otherwise byu adds it.
+
+---
+
+_📝 Noted on 2026-09-23 23:37:06-04:00 @ git:8fc9672+local_
+
+Amended 2026-09-23 while filing wip/1cy: the per-file token check's allowed list gains --name (byu has landed), --stats, and --distribution (wip/mb3); the last two take no value. The coordination note about --name is settled by this.
