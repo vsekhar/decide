@@ -7,7 +7,7 @@
 
 Make decisions from the command line. No code required.
 
-Use decision models like [Typesafe's Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) to make smart decisions in your scripts, pipelines and applications. 
+Use decision models like [Typesafe's Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) to make smart decisions in your scripts, pipelines, and agent skills. 
 
 Decision models let you ask and answer yes/no, multiple choice, and multiple level questions. Decision models can return an answer, the model's confidence in its answer, the probability of the answer being true, and even a full distribution across possible answers.
 
@@ -330,6 +330,14 @@ $ decide --context ticket=@ticket.txt \
 ```
 
 JSON is output on one line (JSONL-style). The example above is wrapped for readability.
+
+### Agent skills
+
+`decide` is ideal for agents: one command, no server, succinct invocation
+language and return values, machine-readable output (text or JSON).
+
+See the [decide skill](.claude/skills/decide/SKILL.md) in this repo for an
+example.
 
 ### Command line configuration
 
