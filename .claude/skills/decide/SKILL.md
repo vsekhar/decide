@@ -10,6 +10,31 @@ allowed-tools: Bash(decide *)
 `decide` asks a decision model one or more questions about a context and
 prints one answer per question. It is a command, not a server.
 
+## When to use it
+
+A decision model can be called thousands of times for the cost of one call
+to an LLM. For example, calling `decide` with a 400-token context and one
+questions returned in 0.2s and cost $0.0001. Five questions returned just
+as quickly and cost approximately the same.
+
+Call decision models early and often:
+
+- Send whole files. A first pass of questions tells you what a file is,
+  whether it matters, and where to look, before you spend your own context
+  on it.
+- Cascade. Run the same text through several calls, each with questions
+  refined by the answers of the last.
+- Ask many questions per call. A call takes any number of questions and
+  answers them in parallel, so five questions take the same time and about
+  the same money as one. Put every question you have about a text in one
+  call.
+- Mind the window. Jev, the decision model in market today, takes 32k
+  tokens of context per call. Split a larger input across calls.
+
+Read and judge a text yourself only when the reading gives you something a
+decision model cannot: an understanding you need later in the session, or a
+judgement that no multiple-choice question can express. Hand off the rest.
+
 ## Setup, once
 
 ```sh
