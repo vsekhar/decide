@@ -2633,7 +2633,7 @@ struct DecideRunTests {
             arguments: ["--context", "ticket=-"] + Self.teamQuestion,
             environment: [:],
             model: Self.triageModel(recording: box),
-            standardInput: input.read,
+            standardInput: input,
             stdout: &out,
             stderr: &err
         )
@@ -2657,7 +2657,7 @@ struct DecideRunTests {
             arguments: ["--context", "-"] + Self.teamQuestion,
             environment: [:],
             model: Self.triageModel(recording: box),
-            standardInput: input.read,
+            standardInput: input,
             stdout: &out,
             stderr: &err
         )
@@ -2686,7 +2686,7 @@ struct DecideRunTests {
                 arguments: ["--context-json", value] + Self.teamQuestion,
                 environment: [:],
                 model: Self.triageModel(recording: box),
-                standardInput: input.read,
+                standardInput: input,
                 stdout: &out,
                 stderr: &err
             )
@@ -2711,7 +2711,7 @@ struct DecideRunTests {
             arguments: ["--context-json", "event=-"] + Self.teamQuestion,
             environment: [:],
             model: model,
-            standardInput: input.read,
+            standardInput: input,
             stdout: &out,
             stderr: &err
         )
@@ -2733,7 +2733,7 @@ struct DecideRunTests {
             arguments: ["--context", "some ticket text", "--questions", "-"],
             environment: [:],
             model: Self.triageModel(),
-            standardInput: input.read,
+            standardInput: input,
             stdout: &out,
             stderr: &err
         )
@@ -2762,7 +2762,7 @@ struct DecideRunTests {
                 arguments: line,
                 environment: [:],
                 model: model,
-                standardInput: input.read,
+                standardInput: input,
                 stdout: &out,
                 stderr: &err
             )
@@ -2794,7 +2794,7 @@ struct DecideRunTests {
                 arguments: ["--context", "ticket=-"] + Self.teamQuestion,
                 environment: [:],
                 model: model,
-                standardInput: input.read,
+                standardInput: input,
                 stdout: &out,
                 stderr: &err
             )
@@ -2815,7 +2815,7 @@ struct DecideRunTests {
         let code = await Decide.run(
             arguments: ["--model", "nosuch", "--context", "ticket=-"] + Self.teamQuestion,
             environment: [:],
-            standardInput: input.read,
+            standardInput: input,
             stdout: &out,
             stderr: &err
         )
@@ -2824,6 +2824,595 @@ struct DecideRunTests {
         #expect(err.contains("is not provider:model"))
         #expect(out.isEmpty)
         #expect(input.reads == 0)
+    }
+
+    // MARK: --each
+
+    /// A model that keeps every request in `log` and answers the questions
+    /// each request asks, in order, with the records `answer` gives for
+    /// that call, counted from 1. `answer` may throw, to fail one event.
+    private static func streamModel(
+        log: RequestLog,
+        answer: @escaping @Sendable (Int) throws -> [AnswerRecord]
+    ) -> ScriptedModel {
+        ScriptedModel { request in
+            log.record(request)
+            let records = try answer(log.requests.count)
+            var answers: [String: AnswerRecord] = [:]
+            for (id, record) in zip(request.questionnaire.specs.map(\.id), records) {
+                answers[id] = record
+            }
+            return Answers(records: answers, quality: .calibrated)
+        }
+    }
+
+    /// A stream model that answers the team question `returns` on every
+    /// call but `call`, which throws `error`.
+    private static func teamStreamModel(
+        log: RequestLog,
+        failing call: Int? = nil,
+        with error: DecisionError = .timeout
+    ) -> ScriptedModel {
+        streamModel(log: log) { number in
+            if number == call { throw error }
+            return [Self.teamAnswer]
+        }
+    }
+
+    /// The `--json` line for the unnamed team question answered `returns`.
+    private static let teamJSONLine = JSONOutput.line(
+        for: [
+            Question(
+                instructions: "Which team handles this ticket?",
+                kind: .choice([Option(id: "shipping"), Option(id: "billing"), Option(id: "returns")])
+            )
+        ],
+        outcomes: [
+            Outcome(
+                questionID: "q1",
+                answer: "returns",
+                confidence: 0.91,
+                probabilities: ["returns": 0.91, "shipping": 0.06, "billing": 0.03]
+            )
+        ]
+    )
+
+    @Test("--each runs the team question once per line, in order, and sends each line as the event")
+    func eachTextEvents() async {
+        let input = ScriptedInput("one\ntwo\nthree\n")
+        let log = RequestLog()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.teamStreamModel(log: log),
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\nreturns\nreturns\n")
+        #expect(err.isEmpty)
+        #expect(
+            log.states == [
+                .object(["event": .text("one")]),
+                .object(["event": .text("two")]),
+                .object(["event": .text("three")]),
+            ]
+        )
+    }
+
+    @Test("--each with --json prints one JSON line per event")
+    func eachJSON() async {
+        let input = ScriptedInput("one\ntwo\nthree\n")
+        let log = RequestLog()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each", "--json"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.teamStreamModel(log: log),
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == String(repeating: Self.teamJSONLine, count: 3))
+        #expect(err.isEmpty)
+        #expect(log.requests.count == 3)
+    }
+
+    @Test("The README's Streaming example prints one JSON line per event, in order")
+    func readmeStreamingExample() async throws {
+        let policyText = "Refund a parcel that never arrived.\n"
+        let policy = try Self.questionFile(policyText)
+        defer { try? FileManager.default.removeItem(atPath: policy) }
+        let triage = try Self.questionFile(Self.readmeTriageText)
+        defer { try? FileManager.default.removeItem(atPath: triage) }
+        let input = ScriptedInput("{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n")
+        let log = RequestLog()
+        // Each event picks the team by its id, so the output shows the order.
+        let teams = ["shipping", "billing", "returns"]
+        let model = Self.streamModel(log: log) { number in
+            let team = teams[number - 1]
+            var probabilities = ["shipping": 0.05, "billing": 0.05, "returns": 0.05]
+            probabilities[team] = 0.9
+            return [
+                .choice(reported: team, probabilities: probabilities, confidence: 0.9),
+                Self.urgencyAnswer,
+                .verdict(probability: 0.87),
+            ]
+        }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: [
+                "--context", "policy=@\(policy)",
+                "--context-json", "event=-",
+                "--each",
+                "--questions", "@\(triage)",
+                "--json",
+            ],
+            environment: [:],
+            model: model,
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(err.isEmpty)
+        let lines = out.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(lines.count == 4)
+        #expect(lines.last == "")
+        let answers = try lines.dropLast().map { line in
+            let object = try #require(
+                JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            )
+            let team = try #require(object["q1"] as? [String: Any])
+            return try #require(team["answer"] as? String)
+        }
+        #expect(answers == teams)
+        #expect(
+            log.states == (1...3).map { id in
+                .object(["policy": .text(policyText), "event": .object(["id": .number(Double(id))])])
+            }
+        )
+    }
+
+    @Test("A line that is not JSON under --context-json is an error record and the stream goes on")
+    func eachBadLine() async {
+        for json in [true, false] {
+            let input = ScriptedInput("{\"a\":1}\nnot json\n{\"a\":3}\n")
+            let log = RequestLog()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context-json", "event=-", "--each"] + (json ? ["--json"] : [])
+                    + Self.teamQuestion,
+                environment: [:],
+                model: Self.teamStreamModel(log: log),
+                standardInput: input,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(json)")
+            #expect(err == "line 2: Error: context \"event\" is not valid JSON\n", "\(json)")
+            #expect(log.requests.count == 2, "\(json)")
+            if json {
+                #expect(
+                    out == Self.teamJSONLine
+                        + #"{"q1":{"kind":"choice","error":"context \"event\" is not valid JSON"}}"#
+                        + "\n" + Self.teamJSONLine
+                )
+            } else {
+                #expect(out == "returns\nreturns\n")
+            }
+        }
+    }
+
+    @Test("Blank and whitespace lines are skipped but still counted in the line number")
+    func eachBlankLines() async {
+        let log = RequestLog()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.teamStreamModel(log: log),
+            standardInput: ScriptedInput("a\n\n   \nb\n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\nreturns\n")
+        #expect(err.isEmpty)
+        #expect(log.states == [.object(["event": .text("a")]), .object(["event": .text("b")])])
+
+        var badOut = ""
+        var badErr = ""
+        let badCode = await Decide.run(
+            arguments: ["--context-json", "event=-", "--each"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.teamStreamModel(log: RequestLog()),
+            standardInput: ScriptedInput("{\"x\":1}\n\n   \nbad\n"),
+            stdout: &badOut,
+            stderr: &badErr
+        )
+
+        #expect(badCode == 10)
+        #expect(badOut == "returns\n")
+        #expect(badErr == "line 4: Error: context \"event\" is not valid JSON\n")
+    }
+
+    @Test("A line loses its carriage return, and a last line with no line feed is an event")
+    func eachLineEndings() async {
+        for text in ["a\r\nb\r\n", "a\nb"] {
+            let log = RequestLog()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context", "event=-", "--each"] + Self.teamQuestion,
+                environment: [:],
+                model: Self.teamStreamModel(log: log),
+                standardInput: ScriptedInput(text),
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 0, "\(text)")
+            #expect(out == "returns\nreturns\n", "\(text)")
+            #expect(
+                log.states == [.object(["event": .text("a")]), .object(["event": .text("b")])],
+                "\(text)"
+            )
+        }
+    }
+
+    @Test("A line that is not UTF-8 is an error record and the stream goes on")
+    func eachLineNotUTF8() async {
+        for json in [true, false] {
+            let input = ScriptedInput(lines: [
+                .success("{\"a\":1}"), .failure(.notUTF8), .success("{\"a\":3}"),
+            ])
+            let log = RequestLog()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context-json", "event=-", "--each"] + (json ? ["--json"] : [])
+                    + Self.teamQuestion,
+                environment: [:],
+                model: Self.teamStreamModel(log: log),
+                standardInput: input,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(json)")
+            #expect(err == "line 2: Error: the line is not valid UTF-8\n", "\(json)")
+            #expect(log.requests.count == 2, "\(json)")
+            if json {
+                #expect(
+                    out == Self.teamJSONLine
+                        + #"{"q1":{"kind":"choice","error":"the line is not valid UTF-8"}}"# + "\n"
+                        + Self.teamJSONLine
+                )
+            } else {
+                #expect(out == "returns\nreturns\n")
+            }
+        }
+    }
+
+    @Test("An unsure event prints an empty answer, names its line, and the stream exits 2")
+    func eachUnsure() async {
+        let log = RequestLog()
+        // P(yes) 0.99 is confidence 0.98; P(yes) 0.6 is confidence 0.20.
+        let model = Self.streamModel(log: log) { number in
+            [.verdict(probability: number == 2 ? 0.6 : 0.99)]
+        }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each"] + Self.refundQuestion(bar: "0.9"),
+            environment: [:],
+            model: model,
+            standardInput: ScriptedInput("one\ntwo\nthree\n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 2)
+        #expect(out == "Yes\n\nYes\n")
+        #expect(
+            err == """
+                line 2: Unsure: question 1 ("Should we issue a refund?") has confidence 0.20, \
+                below the bar of 0.90
+
+                """
+        )
+        #expect(log.requests.count == 3)
+    }
+
+    @Test("A timeout on one event with every fallback prints the fallback and the stream exits 0")
+    func eachTimeoutWithFallback() async {
+        let log = RequestLog()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each"] + Self.namedTeamQuestion
+                + ["--fallback", "human"],
+            environment: [:],
+            model: Self.teamStreamModel(log: log, failing: 2),
+            standardInput: ScriptedInput("one\ntwo\nthree\n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "team=returns\nteam=human\nteam=returns\n")
+        #expect(err == "line 2: Error: the request timed out.\n")
+    }
+
+    @Test("A timeout on one event with no fallback prints nothing plain, an error record with --json, and exits 11")
+    func eachTimeoutWithoutFallback() async {
+        for json in [false, true] {
+            let log = RequestLog()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context", "event=-", "--each"] + (json ? ["--json"] : [])
+                    + Self.teamQuestion,
+                environment: [:],
+                model: Self.teamStreamModel(log: log, failing: 2),
+                standardInput: ScriptedInput("one\ntwo\nthree\n"),
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 11, "\(json)")
+            #expect(err == "line 2: Error: the request timed out.\n", "\(json)")
+            #expect(log.requests.count == 3, "\(json)")
+            if json {
+                #expect(
+                    out == Self.teamJSONLine
+                        + #"{"q1":{"kind":"choice","error":"the request timed out."}}"# + "\n"
+                        + Self.teamJSONLine
+                )
+            } else {
+                #expect(out == "returns\nreturns\n")
+            }
+        }
+    }
+
+    @Test("A context too large for the model on one event is that event's error, and the stream goes on")
+    func eachContextTooLarge() async {
+        for json in [false, true] {
+            let log = RequestLog()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context", "event=-", "--each"] + (json ? ["--json"] : [])
+                    + Self.teamQuestion,
+                environment: [:],
+                model: Self.teamStreamModel(
+                    log: log, failing: 2, with: .contextSizeExceeded(limit: nil, estimated: nil)
+                ),
+                standardInput: ScriptedInput("one\ntwo\nthree\n"),
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(json)")
+            #expect(err == "line 2: Error: the context is too large for the model.\n", "\(json)")
+            #expect(log.requests.count == 3, "\(json)")
+            if json {
+                #expect(
+                    out == Self.teamJSONLine
+                        + #"{"q1":{"kind":"choice","error":"the context is too large for the model."}}"#
+                        + "\n" + Self.teamJSONLine
+                )
+            } else {
+                #expect(out == "returns\nreturns\n")
+            }
+        }
+    }
+
+    @Test("A rejected key on one event stops the stream with 10 after the events before it")
+    func eachUnauthorized() async {
+        let log = RequestLog()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.teamStreamModel(log: log, failing: 2, with: .unauthorized),
+            standardInput: ScriptedInput("one\ntwo\nthree\n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(out == "returns\n")
+        #expect(err == "line 2: Error: the model server rejected the API key.\n")
+        #expect(log.requests.count == 2)
+    }
+
+    @Test("An empty stream prints nothing, exits 0, and reaches no model")
+    func eachEmpty() async {
+        let model = Self.teamStreamModel(log: RequestLog())
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each"] + Self.teamQuestion,
+            environment: [:],
+            model: model,
+            standardInput: ScriptedInput(""),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out.isEmpty)
+        #expect(err.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A stream of one yes/no question whose events answer no exits 0")
+    func eachVerdictNo() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each", "Is this message spam?"],
+            environment: [:],
+            model: Self.spamModel(probability: 0.2),
+            standardInput: ScriptedInput("one\ntwo\nthree\n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "no\nno\nno\n")
+        #expect(err.isEmpty)
+    }
+
+    @Test("--each with --questions - exits 10 with the usage text, with a - context or without")
+    func eachWithQuestionsFromStandardInput() async {
+        let cases: [([String], String)] = [
+            (["--context", "event=-"], CommandLineParser.standardInputTwice),
+            ([], CommandLineParser.eachNeedsStandardInput),
+        ]
+        for (context, message) in cases {
+            let model = Self.triageModel()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: context + ["--each", "--questions", "-"],
+                environment: [:],
+                model: model,
+                standardInput: ScriptedInput(Self.readmeTriageText),
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(context)")
+            #expect(err == "Error: \(message)\n\n" + Decide.usage + "\n", "\(context)")
+            #expect(out.isEmpty, "\(context)")
+            #expect(model.callCount == 0, "\(context)")
+        }
+    }
+
+    @Test("Standard input that does not read stops the stream with 10 and no line number")
+    func eachUnreadable() async {
+        let model = Self.teamStreamModel(log: RequestLog())
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "event=-", "--each"] + Self.teamQuestion,
+            environment: [:],
+            model: model,
+            standardInput: ScriptedInput(lines: [.failure(.unreadable)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(out.isEmpty)
+        #expect(err == "Error: cannot read standard input\n")
+        #expect(model.callCount == 0)
+    }
+
+    @Test("The stream stops at a read that fails, after the bad line before it")
+    func eachStopsAtUnreadable() async {
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context-json", "event=-", "--each", "--json"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.teamStreamModel(log: RequestLog()),
+            standardInput: ScriptedInput(lines: [.success("not json"), .failure(.unreadable)]),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(out == #"{"q1":{"kind":"choice","error":"context \"event\" is not valid JSON"}}"# + "\n")
+        #expect(
+            err == """
+                line 1: Error: context "event" is not valid JSON
+                Error: cannot read standard input
+
+                """
+        )
+    }
+
+    @Test("Every event carries the text of a context file")
+    func eachContextFile() async throws {
+        let policyText = "Refund a parcel that never arrived.\n"
+        let policy = try Self.questionFile(policyText)
+        defer { try? FileManager.default.removeItem(atPath: policy) }
+        let log = RequestLog()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context", "policy=@\(policy)", "--context", "event=-", "--each"]
+                + Self.teamQuestion,
+            environment: [:],
+            model: Self.teamStreamModel(log: log),
+            standardInput: ScriptedInput("one\ntwo\n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\nreturns\n")
+        #expect(
+            log.states == [
+                .object(["policy": .text(policyText), "event": .text("one")]),
+                .object(["policy": .text(policyText), "event": .text("two")]),
+            ]
+        )
+    }
+
+    @Test("The usage text lists --each and the stream's exit code")
+    func usageListsEach() {
+        #expect(
+            Decide.usage.contains(
+                """
+                  --each                         Decide once per line of standard input: each line is
+                                                 the event the - context holds, and each event prints
+                                                 its own lines, one with --json. Blank lines are
+                                                 skipped, and stderr names the input line. Not with
+                                                 --quiet or --questions -.
+
+                """
+            )
+        )
+        #expect(
+            Decide.usage.hasSuffix("\nWith --each, the final code is the highest any event produced.")
+        )
     }
 }
 
@@ -2882,23 +3471,47 @@ private struct ConfigTree {
     }
 }
 
-/// Standard input for a run: gives the text, or throws the error, and counts
-/// each read.
-private final class ScriptedInput {
-    private let result: Result<String, ConfigReadError>
+/// Standard input for a run: gives the text whole or line by line, or
+/// throws the error, and counts each read of either kind.
+///
+/// `init(_:)` splits the text into lines as the real reader does: at each
+/// line feed, a carriage return before it dropped, a last line with no line
+/// feed counted, and no extra empty line after a final line feed.
+private final class ScriptedInput: StandardInputReading {
+    private let whole: Result<String, ConfigReadError>
+    private var lines: [Result<String, ConfigReadError>]
     private(set) var reads = 0
 
     init(_ text: String) {
-        result = .success(text)
+        whole = .success(text)
+        // Scalars, not characters: a carriage return and a line feed form
+        // one character.
+        var split = text.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false)
+        if split.last?.isEmpty == true { split.removeLast() }
+        lines = split.map { line in
+            .success(String(line.last == "\r" ? line.dropLast() : line))
+        }
     }
 
     init(failing error: ConfigReadError) {
-        result = .failure(error)
+        whole = .failure(error)
+        lines = [.failure(error)]
     }
 
-    func read() throws(ConfigReadError) -> String {
+    init(lines: [Result<String, ConfigReadError>]) {
+        whole = .success("")
+        self.lines = lines
+    }
+
+    func readToEnd() throws(ConfigReadError) -> String {
         reads += 1
-        return try result.get()
+        return try whole.get()
+    }
+
+    func readLine() throws(ConfigReadError) -> String? {
+        reads += 1
+        guard !lines.isEmpty else { return nil }
+        return try lines.removeFirst().get()
     }
 }
 
@@ -2915,5 +3528,24 @@ private final class RequestBox: Sendable {
 
     var request: DecisionRequest? {
         stored.withLock { $0 }
+    }
+}
+
+/// Keeps every request the model got, in order, so a stream test can read
+/// what each event sent.
+private final class RequestLog: Sendable {
+    private let stored = Mutex<[DecisionRequest]>([])
+
+    func record(_ request: DecisionRequest) {
+        stored.withLock { $0.append(request) }
+    }
+
+    var requests: [DecisionRequest] {
+        stored.withLock { $0 }
+    }
+
+    /// The state of each request, in order.
+    var states: [State?] {
+        requests.map(\.state)
     }
 }

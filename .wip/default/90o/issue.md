@@ -2,7 +2,7 @@
 priority: p3
 type: task
 created: 2026-09-27T14:15:46-04:00
-updated: 2026-09-27T14:15:50-04:00
+updated: 2026-09-27T14:37:55-04:00
 blocked-on:
   - bpg
 ---
@@ -31,3 +31,9 @@ Another option: leave it, and document the workaround in the usage text. Decide 
 
 - [ ] A decision is logged: the guard is built and tested, or the usage text names the workaround.
 - [ ] `swift build --build-tests -Xswiftc -warnings-as-errors` is clean; `swift test --skip DecideLive` passes.
+
+---
+
+_📝 Noted on 2026-09-27 14:37:55-04:00 @ git:8c5fe99+local_
+
+2026-09-27: recommendation put to the user with the cba questions: build the guard (a value whose first scalar is {, [, or " is unnamed text before the name attempt). The user answered the cba points and not this one yet, so it waits on a yes or no.

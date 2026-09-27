@@ -59,6 +59,11 @@ public enum Decide {
           --json                         Print one JSON object keyed by question name, with
                                          each answer's kind, confidence, and probabilities.
                                          Not with --quiet.
+          --each                         Decide once per line of standard input: each line is
+                                         the event the - context holds, and each event prints
+                                         its own lines, one with --json. Blank lines are
+                                         skipped, and stderr names the input line. Not with
+                                         --quiet or --questions -.
           --model <model>                The model for this run, provider:model. Wins over
                                          the environment and every config file.
           --api-key <key>                The API key for this run. Wins over the environment
@@ -82,6 +87,7 @@ public enum Decide {
 
         Exit codes: 0 decided, 2 unsure, 10 setup or input error, 11 remote error.
         One yes/no question answers with its exit code too: 0 yes, 1 no, like grep.
+        With --each, the final code is the highest any event produced.
         """
 
     /// Runs the tool and returns the process exit code.
@@ -98,7 +104,10 @@ public enum Decide {
     /// each `--questions` file and puts its questions in the flag's place.
     /// `-` as a `--context` value or a `--questions` value reads standard
     /// input, once per run. A `--context-json` value, whatever its form, is
-    /// parsed as JSON before the model sees it.
+    /// parsed as JSON before the model sees it. `--each` runs the questions
+    /// once per line of standard input, which the `-` context holds; each
+    /// event prints its own lines, stderr names the input line, and the code
+    /// is the highest any event produced.
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
@@ -109,7 +118,7 @@ public enum Decide {
         environment: [String: String],
         currentDirectory: String? = nil,
         model: (any DecisionModel)? = nil,
-        standardInput: () throws(ConfigReadError) -> String = StandardInput().readToEnd,
+        standardInput: any StandardInputReading = StandardInput(),
         stdout: inout some TextOutputStream,
         stderr: inout some TextOutputStream
     ) async -> Int32 {
@@ -118,7 +127,7 @@ public enum Decide {
         var standardInputWasRead = false
         func readStandardInput() throws(ConfigReadError) -> String {
             standardInputWasRead = true
-            return try standardInput()
+            return try standardInput.readToEnd()
         }
         let parsed: ParseResult
         do {
@@ -184,29 +193,78 @@ public enum Decide {
             return ExitCode.code(for: error)
         }
 
+        if invocation.each {
+            return await stream(
+                invocation,
+                model: decisionModel,
+                standardInput: standardInput,
+                stdout: &stdout,
+                stderr: &stderr
+            )
+        }
+
         let state: State?
         if let context = invocation.context {
-            guard let loaded = loadState(
-                context, standardInput: readStandardInput, stderr: &stderr
-            ) else {
+            do {
+                state = try loadState(context, standardInput: readStandardInput)
+            } catch {
+                print(ExitCode.message(for: error), to: &stderr)
                 return ExitCode.setup
             }
-            state = loaded
         } else {
             state = nil
         }
 
+        return await decide(
+            invocation,
+            about: state,
+            using: DecisionSession(model: decisionModel),
+            line: nil,
+            stdout: &stdout,
+            stderr: &stderr
+        ).code
+    }
+
+    /// Runs the questions about the state and prints the answers: the whole
+    /// of a plain run, or one event of a stream. `line` is the event's input
+    /// line number in a stream, and nil in a plain run. Every stderr line of
+    /// an event starts with `line N: `. Returns the exit code. A plain run
+    /// gives the answer's code, as `run` describes. In a stream a decided
+    /// event is 0 whatever it answered, so is a remote error every fallback
+    /// covers, and `stops` is true for a model error that is the run's, not
+    /// the event's: one whose code is `ExitCode.setup`, except a context too
+    /// large for the model, which is the event's alone. A remote error no
+    /// fallback covers, or a context too large for the model, prints an
+    /// error record under `--json` in a stream, so the event still prints
+    /// one line, and nothing in a plain run.
+    private static func decide(
+        _ invocation: Invocation,
+        about state: State?,
+        using session: DecisionSession,
+        line: Int?,
+        stdout: inout some TextOutputStream,
+        stderr: inout some TextOutputStream
+    ) async -> (code: Int32, stops: Bool) {
+        let prefix = line.map { "line \($0): " } ?? ""
         let outcomes: [Outcome]
         do {
-            let session = DecisionSession(model: decisionModel)
             outcomes = try await Runner.decide(
                 invocation.questions, about: state, using: session
             )
         } catch {
-            print(ExitCode.message(for: error), to: &stderr)
+            print(prefix + ExitCode.message(for: error), to: &stderr)
             let code = ExitCode.code(for: error)
             let fallbacks = invocation.questions.map(\.fallback)
-            guard code == ExitCode.remote, !fallbacks.contains(nil) else { return code }
+            let perEvent = code == ExitCode.remote || isEventError(error)
+            guard code == ExitCode.remote, !fallbacks.contains(nil) else {
+                if line != nil, perEvent, invocation.json {
+                    let record = JSONOutput.errorLine(
+                        for: invocation.questions, message: ExitCode.reason(for: error)
+                    )
+                    print(record, terminator: "", to: &stdout)
+                }
+                return (code, line != nil && !perEvent)
+            }
             if invocation.json {
                 print(JSONOutput.fallbackLine(for: invocation.questions), terminator: "", to: &stdout)
             } else if !invocation.quiet {
@@ -214,12 +272,14 @@ public enum Decide {
                     print(PlainOutput.fallbackLine(for: question), to: &stdout)
                 }
             }
-            return exitCode(for: fallbacks, questions: invocation.questions)
+            let fallbackCode = line == nil
+                ? exitCode(for: fallbacks, questions: invocation.questions) : ExitCode.decided
+            return (fallbackCode, false)
         }
 
         if invocation.json {
-            let line = JSONOutput.line(for: invocation.questions, outcomes: outcomes)
-            print(line, terminator: "", to: &stdout)
+            let json = JSONOutput.line(for: invocation.questions, outcomes: outcomes)
+            print(json, terminator: "", to: &stdout)
         } else if !invocation.quiet {
             for (question, outcome) in zip(invocation.questions, outcomes) {
                 print(PlainOutput.line(for: question, outcome: outcome), to: &stdout)
@@ -228,10 +288,118 @@ public enum Decide {
         let printed = zip(invocation.questions, outcomes).map(Runner.printedAnswer)
         let unsure = Runner.unsureQuestions(in: invocation.questions, outcomes: outcomes)
         if !unsure.isEmpty {
-            print(Unsure.report(unsure), to: &stderr)
+            print(prefix + Unsure.report(unsure), to: &stderr)
         }
-        guard !printed.contains(nil) else { return ExitCode.unsure }
-        return exitCode(for: printed, questions: invocation.questions)
+        guard !printed.contains(nil) else { return (ExitCode.unsure, false) }
+        let code = line == nil
+            ? exitCode(for: printed, questions: invocation.questions) : ExitCode.decided
+        return (code, false)
+    }
+
+    /// Whether a model error belongs to the event alone in a stream, so the
+    /// stream goes on. A context too large for the model depends on the
+    /// event's size. Every other error whose code is setup is the run's, the
+    /// same for every event, so it stops the stream.
+    private static func isEventError(_ error: any Error) -> Bool {
+        guard case .contextSizeExceeded = error as? DecisionError else { return false }
+        return true
+    }
+
+    /// Runs the questions once per line of standard input, in order, through
+    /// one session. The `-` context holds each line. A blank line is skipped
+    /// but counted, so stderr names the line in the input. A bad line, one
+    /// that is not UTF-8 or not valid JSON under `--context-json`, is an
+    /// error for that event alone, and so is a context too large for the
+    /// model. Every other setup error from the model is the run's, so it
+    /// stops the stream, as does standard input that does not read. Returns
+    /// the highest code any event produced, 0 for an empty stream.
+    private static func stream(
+        _ invocation: Invocation,
+        model: any DecisionModel,
+        standardInput: any StandardInputReading,
+        stdout: inout some TextOutputStream,
+        stderr: inout some TextOutputStream
+    ) async -> Int32 {
+        guard let context = invocation.context else {
+            let error = UsageError(CommandLineParser.eachNeedsStandardInput)
+            print(ExitCode.message(for: error), to: &stderr)
+            return ExitCode.setup
+        }
+        let base: Context
+        do {
+            base = try readingFiles(in: context)
+        } catch {
+            print(ExitCode.message(for: error), to: &stderr)
+            return ExitCode.setup
+        }
+
+        let session = DecisionSession(model: model)
+        var highest = ExitCode.decided
+        var number = 0
+        while true {
+            let line: String
+            do {
+                guard let read = try standardInput.readLine() else { break }
+                line = read
+            } catch .notUTF8 {
+                number += 1
+                reportBadLine(
+                    ContextLoadError.lineNotUTF8, line: number, invocation: invocation,
+                    stdout: &stdout, stderr: &stderr
+                )
+                highest = max(highest, ExitCode.setup)
+                continue
+            } catch {
+                print(ExitCode.message(for: ContextLoadError.unreadableInput), to: &stderr)
+                return max(highest, ExitCode.setup)
+            }
+            number += 1
+            guard !line.allSatisfy(\.isWhitespace) else { continue }
+
+            let state: State
+            do {
+                state = try loadState(
+                    base.replacingStandardInput(with: line), standardInput: { line }
+                )
+            } catch {
+                reportBadLine(
+                    error, line: number, invocation: invocation,
+                    stdout: &stdout, stderr: &stderr
+                )
+                highest = max(highest, ExitCode.setup)
+                continue
+            }
+            let (code, stops) = await decide(
+                invocation,
+                about: state,
+                using: session,
+                line: number,
+                stdout: &stdout,
+                stderr: &stderr
+            )
+            highest = max(highest, code)
+            if stops { return highest }
+        }
+        return highest
+    }
+
+    /// Reports an event line that did not load: `line N: Error: ...` on
+    /// `stderr`, and with `--json` an error record on `stdout`, so the event
+    /// still prints one line.
+    private static func reportBadLine(
+        _ error: ContextLoadError,
+        line: Int,
+        invocation: Invocation,
+        stdout: inout some TextOutputStream,
+        stderr: inout some TextOutputStream
+    ) {
+        print("line \(line): " + ExitCode.message(for: error), to: &stderr)
+        if invocation.json {
+            let record = JSONOutput.errorLine(
+                for: invocation.questions, message: ExitCode.reason(for: error)
+            )
+            print(record, terminator: "", to: &stdout)
+        }
     }
 
     /// The code a decided run returns. One yes/no question answers with its
@@ -382,42 +550,51 @@ public enum Decide {
         return text
     }
 
+    /// The context with every `.file` source read to `.text`. `.text` and
+    /// `.standardInput` stay as they are. A stream calls it once, so it
+    /// reads no file twice. Throws `.unreadableFile` when a file does not
+    /// read.
+    static func readingFiles(in context: Context) throws(ContextLoadError) -> Context {
+        func read(_ source: ContextSource) throws(ContextLoadError) -> ContextSource {
+            guard case .file(let path) = source else { return source }
+            return .text(try readContextFile(path))
+        }
+        switch context {
+        case .single(let source, let format):
+            return .single(try read(source), format)
+        case .named(let contexts):
+            var named: [NamedContext] = []
+            for context in contexts {
+                let source = try read(context.source)
+                named.append(
+                    NamedContext(name: context.name, source: source, format: context.format)
+                )
+            }
+            return .named(named)
+        }
+    }
+
     /// Reads the run's context into the state the model sees. One context is
     /// its text, or its parsed value with `.json`. Named contexts are one
     /// object, each field the text or parsed value of the context of that
-    /// name, read in command-line order. Prints the reason to `stderr` and
-    /// returns nil when a file or standard input does not read, or when a
-    /// `.json` context's text is not valid JSON.
+    /// name, read in command-line order. Throws when a file or standard input
+    /// does not read, or when a `.json` context's text is not valid JSON.
     private static func loadState(
         _ context: Context,
-        standardInput: () throws(ConfigReadError) -> String,
-        stderr: inout some TextOutputStream
-    ) -> State? {
+        standardInput: () throws(ConfigReadError) -> String
+    ) throws(ContextLoadError) -> State {
         switch context {
         case .single(let source, let format):
-            guard let text = loadContext(
-                source, standardInput: standardInput, stderr: &stderr
-            ) else {
-                return nil
-            }
-            return state(of: text, as: format, named: nil, stderr: &stderr)
+            let text = try loadContext(source, standardInput: standardInput)
+            return try state(of: text, as: format, named: nil)
         case .named(let contexts):
             // Assignment, not `Dictionary(uniqueKeysWithValues:)`, which traps
             // on a repeated name. The parser keeps names unique, but
             // `Invocation` is public, so the last one wins instead.
             var fields: [String: State] = [:]
             for context in contexts {
-                guard let text = loadContext(
-                    context.source, standardInput: standardInput, stderr: &stderr
-                ) else {
-                    return nil
-                }
-                guard let value = state(
-                    of: text, as: context.format, named: context.name, stderr: &stderr
-                ) else {
-                    return nil
-                }
-                fields[context.name] = value
+                let text = try loadContext(context.source, standardInput: standardInput)
+                fields[context.name] = try state(of: text, as: context.format, named: context.name)
             }
             return .object(fields)
         }
@@ -425,16 +602,15 @@ public enum Decide {
 
     /// The state one context's text gives: the text itself for `.text`, or
     /// its parsed value for `.json`. A leading BOM is dropped before the
-    /// parse, as a question file's is. Prints the reason to `stderr` and
-    /// returns nil when the text is not valid JSON; empty text is not. The
-    /// message carries none of Foundation's detail, which differs by
-    /// platform. `name` is the context's name, or nil for an unnamed one.
+    /// parse, as a question file's is. Throws `.notJSON` when the text is not
+    /// valid JSON; empty text is not. The message carries none of
+    /// Foundation's detail, which differs by platform. `name` is the
+    /// context's name, or nil for an unnamed one.
     private static func state(
         of text: String,
         as format: ContextFormat,
-        named name: String?,
-        stderr: inout some TextOutputStream
-    ) -> State? {
+        named name: String?
+    ) throws(ContextLoadError) -> State {
         switch format {
         case .text:
             return .text(text)
@@ -443,46 +619,72 @@ public enum Decide {
             if scalars.first == "\u{FEFF}" { scalars.removeFirst() }
             let data = Data(String(scalars).utf8)
             guard let state = try? JSONDecoder().decode(State.self, from: data) else {
-                let which = name.map { "context \"\($0)\"" } ?? "the context"
-                print("Error: \(which) is not valid JSON", to: &stderr)
-                return nil
+                throw .notJSON(name: name)
             }
             return state
         }
     }
 
     /// Reads the context. `.text` is the text itself; `.file` is read as
-    /// UTF-8, and `.standardInput` through `standardInput`. Prints the reason
-    /// to `stderr` and returns nil when the file or standard input does not
-    /// read.
+    /// UTF-8, and `.standardInput` through `standardInput`. Throws when the
+    /// file or standard input does not read.
     private static func loadContext(
         _ source: ContextSource,
-        standardInput: () throws(ConfigReadError) -> String,
-        stderr: inout some TextOutputStream
-    ) -> String? {
+        standardInput: () throws(ConfigReadError) -> String
+    ) throws(ContextLoadError) -> String {
         switch source {
         case .text(let text):
             return text
         case .file(let path):
-            do {
-                return try String(contentsOfFile: path, encoding: .utf8)
-            } catch {
-                print(
-                    "Error: cannot read context file \"\(path)\": \(error.localizedDescription)",
-                    to: &stderr
-                )
-                return nil
-            }
+            return try readContextFile(path)
         case .standardInput:
             do {
                 return try standardInput()
             } catch {
                 switch error {
-                case .unreadable: print("Error: cannot read standard input", to: &stderr)
-                case .notUTF8: print("Error: standard input is not valid UTF-8", to: &stderr)
+                case .unreadable: throw .unreadableInput
+                case .notUTF8: throw .inputNotUTF8
                 }
-                return nil
             }
+        }
+    }
+
+    /// Reads a context file as UTF-8. Throws `.unreadableFile` with the
+    /// system's reason when it does not read.
+    private static func readContextFile(_ path: String) throws(ContextLoadError) -> String {
+        do {
+            return try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            throw .unreadableFile(path: path, reason: error.localizedDescription)
+        }
+    }
+}
+
+/// Why a context did not load: its file or standard input did not read, or
+/// a `.json` context's text is not valid JSON.
+enum ContextLoadError: Error, Equatable {
+    /// A context file that does not read, with the path and the system's reason.
+    case unreadableFile(path: String, reason: String)
+    /// Standard input that does not read.
+    case unreadableInput
+    /// Standard input that is not UTF-8.
+    case inputNotUTF8
+    /// An event line that is not UTF-8, under `--each`.
+    case lineNotUTF8
+    /// A `.json` context whose text is not valid JSON. `name` is nil for an
+    /// unnamed context.
+    case notJSON(name: String?)
+
+    /// The message, after `Error: `.
+    var message: String {
+        switch self {
+        case .unreadableFile(let path, let reason):
+            "cannot read context file \"\(path)\": \(reason)"
+        case .unreadableInput: "cannot read standard input"
+        case .inputNotUTF8: "standard input is not valid UTF-8"
+        case .lineNotUTF8: "the line is not valid UTF-8"
+        case .notJSON(let name):
+            (name.map { "context \"\($0)\"" } ?? "the context") + " is not valid JSON"
         }
     }
 }

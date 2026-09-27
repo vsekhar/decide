@@ -16,6 +16,9 @@ public struct Invocation: Sendable, Equatable {
     /// Print the answers as one JSON object, from `--json`. Never with
     /// `quiet`.
     public var json: Bool
+    /// Decide once per line of standard input, from `--each`. A `-` context
+    /// holds each line. Never with `quiet`.
+    public var each: Bool
     /// The model for this run from `--model`, or nil to use the environment
     /// and the config files.
     public var model: String?
@@ -28,6 +31,7 @@ public struct Invocation: Sendable, Equatable {
         questions: [Question],
         quiet: Bool = false,
         json: Bool = false,
+        each: Bool = false,
         model: String? = nil,
         apiKey: String? = nil
     ) {
@@ -35,6 +39,7 @@ public struct Invocation: Sendable, Equatable {
         self.questions = questions
         self.quiet = quiet
         self.json = json
+        self.each = each
         self.model = model
         self.apiKey = apiKey
     }
@@ -74,6 +79,23 @@ public enum Context: Sendable, Equatable {
             return source == .standardInput
         case .named(let contexts):
             return contexts.contains { $0.source == .standardInput }
+        }
+    }
+
+    /// The context with every `.standardInput` source replaced by
+    /// `.text(text)`. Pure. A stream calls it once per event, with the
+    /// event's line.
+    func replacingStandardInput(with text: String) -> Context {
+        func replaced(_ source: ContextSource) -> ContextSource {
+            source == .standardInput ? .text(text) : source
+        }
+        switch self {
+        case .single(let source, let format):
+            return .single(replaced(source), format)
+        case .named(let contexts):
+            return .named(contexts.map {
+                NamedContext(name: $0.name, source: replaced($0.source), format: $0.format)
+            })
         }
     }
 }

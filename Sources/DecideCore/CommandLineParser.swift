@@ -61,15 +61,16 @@ public enum CommandLineParser {
     /// `--context` value of `-` is standard input, which a line may name
     /// once. `--context-json` is `--context` whose value is parsed as JSON,
     /// in every form, and the two flags share one list, so the rules above
-    /// run across both. `--model` and `--api-key` set the model and key for
-    /// this run, over the environment and every config file. `--version`
-    /// anywhere returns `.version(alone:)`, alone or not. Without it,
-    /// `--help` or `-h` anywhere returns `.help`. `--set-config` after those
-    /// two takes the line for itself: `--model`, `--api-key`, and
-    /// `--project` join it, and any other token is an error. `--questions`
-    /// is an error: the caller expands it first, so the parser reads no
-    /// file. Anything the tool cannot run throws a `UsageError` that names
-    /// the problem.
+    /// run across both. `--each` runs the questions once per line of standard
+    /// input, which a `-` context must hold, and does not go with `--quiet`.
+    /// `--model` and `--api-key` set the model and key for this run, over the
+    /// environment and every config file. `--version` anywhere returns
+    /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
+    /// anywhere returns `.help`. `--set-config` after those two takes the
+    /// line for itself: `--model`, `--api-key`, and `--project` join it, and
+    /// any other token is an error. `--questions` is an error: the caller
+    /// expands it first, so the parser reads no file. Anything the tool
+    /// cannot run throws a `UsageError` that names the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         return try parse(items: arguments.map(QuestionFile.Item.token))
@@ -99,6 +100,7 @@ public enum CommandLineParser {
         var entries: [Entry] = []
         var quiet = false
         var json = false
+        var each = false
         var model: String?
         var apiKey: String?
         var start = 0
@@ -131,6 +133,12 @@ public enum CommandLineParser {
                 if token == "--json" {
                     guard !json else { throw UsageError("--json was given twice") }
                     json = true
+                    continue
+                }
+
+                if token == "--each" {
+                    guard !each else { throw UsageError("--each was given twice") }
+                    each = true
                     continue
                 }
 
@@ -235,6 +243,12 @@ public enum CommandLineParser {
 
         if json && quiet { throw UsageError("--json does not go with --quiet") }
 
+        if each && quiet { throw UsageError("--each does not go with --quiet") }
+
+        if each && context?.readsStandardInput != true {
+            throw UsageError(eachNeedsStandardInput)
+        }
+
         if quiet, let detailed = finished.first(where: { $0.detail != .answer }) {
             throw UsageError(
                 detailed.detail == .distribution
@@ -255,6 +269,7 @@ public enum CommandLineParser {
                 questions: finished,
                 quiet: quiet,
                 json: json,
+                each: each,
                 model: model,
                 apiKey: apiKey
             )
@@ -762,6 +777,11 @@ public enum CommandLineParser {
     /// of `--context -`, `--context <name>=-`, and `--questions -`. The
     /// expansion and the run use the same words.
     static let standardInputTwice = "- was given twice: standard input reads once"
+
+    /// The message for `--each` on a line with no `-` context, which the
+    /// events would fill.
+    static let eachNeedsStandardInput =
+        "--each needs a --context - or --context-json <name>=- to read events from"
 
     /// Reads an `--option`, `--level`, `--yes`, or `--no` value. The first
     /// `=` splits the id from the description. An empty description counts as

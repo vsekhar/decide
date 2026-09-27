@@ -750,6 +750,52 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--each sets each with --context event=-, --context-json event=-, or --context -")
+    func eachForms() throws {
+        let cases: [([String], Context)] = [
+            (["--context", "event=-"], .named([NamedContext(name: "event", source: .standardInput)])),
+            (
+                ["--context-json", "event=-"],
+                .named([NamedContext(name: "event", source: .standardInput, format: .json)])
+            ),
+            (["--context", "-"], .single(.standardInput)),
+        ]
+        for (context, expected) in cases {
+            let result = try CommandLineParser.parse(context + ["--each", "Q", "--option", "a"])
+            #expect(
+                result == .run(Invocation(context: expected, questions: [question], each: true)),
+                "\(context)"
+            )
+        }
+    }
+
+    @Test("--each twice is an error")
+    func eachTwice() {
+        #expect(throws: UsageError("--each was given twice")) {
+            try CommandLineParser.parse(["--each", "--each", "--context", "-", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("--each with -q is an error")
+    func eachWithQuiet() {
+        #expect(throws: UsageError("--each does not go with --quiet")) {
+            try CommandLineParser.parse(["--each", "-q", "--context", "-", "Q?"])
+        }
+    }
+
+    @Test("--each with no - context is an error, with a file context or with none")
+    func eachWithoutStandardInput() {
+        let lines = [
+            ["--each", "--context", "@f", "Q", "--option", "a"],
+            ["--each", "Q", "--option", "a"],
+        ]
+        for line in lines {
+            #expect(throws: UsageError(CommandLineParser.eachNeedsStandardInput), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
     @Test("--option - is still an option id")
     func optionDash() throws {
         #expect(

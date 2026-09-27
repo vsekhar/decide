@@ -381,6 +381,32 @@ struct JSONOutputTests {
         )
     }
 
+    @Test("The error line has kind and error, and no answer or numbers")
+    func errorLine() {
+        var team = Self.teamQuestion
+        team.name = "team"
+        var refund = Self.refundQuestion
+        refund.name = "refund"
+        let line = JSONOutput.errorLine(for: [team, refund], message: "the request timed out.")
+        #expect(
+            line == """
+                {"team":{"kind":"choice","error":"the request timed out."},\
+                "refund":{"kind":"verdict","error":"the request timed out."}}
+
+                """
+        )
+    }
+
+    @Test("The error line of an unnamed verdict keys it q1 and escapes the quotes in the message")
+    func errorLineEscapes() {
+        let line = JSONOutput.errorLine(
+            for: [Self.refundQuestion], message: "context \"event\" is not valid JSON"
+        )
+        #expect(
+            line == #"{"q1":{"kind":"verdict","error":"context \"event\" is not valid JSON"}}"# + "\n"
+        )
+    }
+
     @Test("The line ends with one newline")
     func oneNewline() {
         let line = JSONOutput.line(

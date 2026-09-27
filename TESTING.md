@@ -188,3 +188,26 @@ out=$(mktemp)
 echo $?           # 0 yes, 1 no
 wc -c < "$out"    # 0
 ```
+
+A stream is the exception: stdout holds every decided event's lines while
+the final code may be 2, 10, or 11. The line reader reads the real
+descriptor, so no unit test covers it; this drives the binary through a
+pipe with no key and no network call, because no line parses. Expect four
+error records on stdout for lines 1, 2, 4, and 5, the blank line 3
+skipped, four `line N: Error:` lines on stderr with line 4 not valid
+UTF-8, and exit 10:
+
+```sh
+printf 'a\r\nb\n\n\xff\nc' | "$bin" --model typesafe:x --api-key k \
+  --context-json event=- --each "Q?" --option a --option b --json; echo $?
+```
+
+The reader must give a line as soon as it arrives, not at end of file.
+This pipe writes two lines three seconds apart, so the two stderr lines
+must carry timestamps three seconds apart:
+
+```sh
+(printf 'a\n'; sleep 3; printf 'b\n') | "$bin" --model typesafe:x --api-key k \
+  --context-json event=- --each "Q?" --option a --option b 2>&1 >/dev/null \
+  | while IFS= read -r line; do echo "$(date +%s) $line"; done
+```

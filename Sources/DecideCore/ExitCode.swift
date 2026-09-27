@@ -29,6 +29,8 @@ public enum ExitCode {
             setup
         case is ConfigError:
             setup
+        case is ContextLoadError:
+            setup
         case let error as DecisionError:
             code(for: error)
         default:
@@ -45,6 +47,8 @@ public enum ExitCode {
             oneLine(message(for: error))
         case let error as ConfigError:
             oneLine(message(for: error))
+        case let error as ContextLoadError:
+            oneLine("Error: \(error.message)")
         case let error as DecisionError:
             oneLine(message(for: error))
         case is CancellationError:
@@ -52,6 +56,12 @@ public enum ExitCode {
         default:
             oneLine("Error: \(String(describing: error))")
         }
+    }
+
+    /// The message without its `Error: ` prefix, for a `--json` error
+    /// record. Every message `message(for:)` gives starts with that prefix.
+    static func reason(for error: any Error) -> String {
+        String(message(for: error).dropFirst("Error: ".count))
     }
 
     private static func code(for error: DecisionError) -> Int32 {

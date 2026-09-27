@@ -44,6 +44,12 @@ private func errorTable() -> [(error: any Error, code: Int32)] {
         (ConfigurationError.unknownProvider("foo"), 10),
         (ConfigError(path: "p", line: 3, problem: "x"), 10),
         (ConfigError(path: "p", line: 0, problem: "x"), 10),
+        (ContextLoadError.unreadableFile(path: "p", reason: "r"), 10),
+        (ContextLoadError.unreadableInput, 10),
+        (ContextLoadError.inputNotUTF8, 10),
+        (ContextLoadError.lineNotUTF8, 10),
+        (ContextLoadError.notJSON(name: "event"), 10),
+        (ContextLoadError.notJSON(name: nil), 10),
         (CancellationError(), 11),
         (Unknown(), 11),
     ]
@@ -137,6 +143,28 @@ struct ExitCodeTests {
             problem: "is not valid UTF-8"
         )
         #expect(ExitCode.message(for: file) == "Error: /a/.decide/config: is not valid UTF-8")
+    }
+
+    @Test("A context load error gives Error: and its message, and code 10")
+    func contextLoadMessages() {
+        let cases: [(ContextLoadError, String)] = [
+            (.unreadableFile(path: "p.txt", reason: "no such file"), "cannot read context file \"p.txt\": no such file"),
+            (.unreadableInput, "cannot read standard input"),
+            (.inputNotUTF8, "standard input is not valid UTF-8"),
+            (.lineNotUTF8, "the line is not valid UTF-8"),
+            (.notJSON(name: "event"), "context \"event\" is not valid JSON"),
+            (.notJSON(name: nil), "the context is not valid JSON"),
+        ]
+        for (error, message) in cases {
+            #expect(ExitCode.message(for: error) == "Error: " + message, "\(error)")
+            #expect(ExitCode.code(for: error) == 10, "\(error)")
+        }
+    }
+
+    @Test("The reason is the message without its Error: prefix")
+    func reasons() {
+        #expect(ExitCode.reason(for: UsageError("x")) == "x")
+        #expect(ExitCode.reason(for: DecisionError.timeout) == "the request timed out.")
     }
 
     @Test("A newline in a payload does not break the line")

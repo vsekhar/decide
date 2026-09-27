@@ -50,6 +50,22 @@ public enum JSONOutput {
         return object(pairs) + "\n"
     }
 
+    /// The line for an event the run could not decide and no fallback
+    /// covers: each object has `kind` and then `error`, the message without
+    /// its `Error: ` prefix, and no other key, because there is no answer.
+    /// Keys and ids as `line(for:outcomes:)` gives them. A stream prints it
+    /// under `--json`, so every event still prints one line.
+    public static func errorLine(for questions: [Question], message: String) -> String {
+        let pairs = questions.enumerated().map { index, question in
+            let fields: [(key: String, value: String)] = [
+                ("kind", string(kind(question))),
+                ("error", string(message)),
+            ]
+            return (key: Runner.identifier(for: question, at: index), value: object(fields))
+        }
+        return object(pairs) + "\n"
+    }
+
     /// One answer as a JSON object. The kind decides which keys it has and
     /// the order they come in.
     private static func value(_ question: Question, _ outcome: Outcome) -> String {

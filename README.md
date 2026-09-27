@@ -313,6 +313,8 @@ cat events.jsonl | decide --context policy=@policy.txt \
                           --json > triage_decisions.jsonl
 ```
 
+Each line of standard input is one event, and the `-` context holds it. Blank lines are skipped. With `--json`, every event prints one line, so line N of the output answers the Nth non-blank line of the input; an event the model server failed, or a line that is not valid JSON or UTF-8, or too large for the model, prints an error record. Without `--json`, an event prints the lines a single run prints, and an event with an error prints nothing, so read stderr, which names the input line, and use `--json` for output a program reads.
+
 ### JSON output
 
 Full parseable details of a decision can be obtained via JSON output:
@@ -434,6 +436,4 @@ Exit 2 prints every line, and the unsure ones are empty. Check the code before y
 
 `--fallback` on a question makes an unsure answer a decision, and a remote error too when every question has one. With one yes/no question the fallback is its yes or no value, and the code follows that side.
 
-In a stream, 10 stops the run at once. 2 and 11 are per event: the event
-gets an error line or its fallback, the stream goes on, and the final code
-is the highest code any event produced.
+In a stream, a setup error stops the run at once. 2, 10, and 11 are per event: an unsure event prints its empty answers or its fallbacks; an event the model server failed prints its fallbacks, or an error record with `--json`; a line that is not valid JSON or UTF-8, or too large for the model, prints an error record with `--json` and nothing without; stderr names the input line; the stream goes on; and the final code is the highest code any event produced. A decided event counts as 0, so one yes/no question does not answer with the exit code in a stream.
