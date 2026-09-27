@@ -86,7 +86,7 @@ yes
 
 # Name questions; a named question prints as name=answer
 $ decide --context @ticket.txt \
-     "Which team handles this ticket?"
+     "Which team handles this ticket?" \
         --name team \
         --option shipping \
         --option billing \
