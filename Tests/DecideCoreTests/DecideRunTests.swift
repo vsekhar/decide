@@ -1126,6 +1126,172 @@ struct DecideRunTests {
         #expect(request.state == .object(["ticket": .text("some ticket text")]))
     }
 
+    @Test("The README --context-json example sends the order as an object beside the policy text")
+    func contextJSONReadmeExample() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).txt")
+        let policyText = "Refunds are allowed within 30 days of delivery.\n"
+        try policyText.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: [
+                "--context-json", "order={\"total\": 45.00, \"days_since_delivery\": 12}",
+                "--context", "refund_policy=@\(url.path)",
+            ] + Self.plainRefundQuestion,
+            environment: [:],
+            model: Self.spamModel(probability: 0.87, recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+        let request = try #require(box.request)
+        #expect(
+            request.state
+                == .object([
+                    "order": .object(["total": .number(45), "days_since_delivery": .number(12)]),
+                    "refund_policy": .text(policyText),
+                ])
+        )
+    }
+
+    @Test("An unnamed --context-json sends its parsed value, an array or a string")
+    func unnamedContextJSON() async throws {
+        let cases: [(String, State)] = [
+            ("[1, 2, 3]", .array([.number(1), .number(2), .number(3)])),
+            ("\"just text\"", .text("just text")),
+        ]
+        for (value, state) in cases {
+            let box = RequestBox()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context-json", value] + Self.teamQuestion,
+                environment: [:],
+                model: Self.triageModel(recording: box),
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 0, "\(value)")
+            #expect(out == "returns\n", "\(value)")
+            #expect(err.isEmpty, "\(value)")
+            let request = try #require(box.request)
+            #expect(request.state == state, "\(value)")
+        }
+    }
+
+    @Test("A --context-json file reaches the model as its parsed value")
+    func contextJSONFile() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).json")
+        try "{\"id\": 7, \"ok\": true}\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context-json", "event=@\(url.path)"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.triageModel(recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "returns\n")
+        #expect(err.isEmpty)
+        let request = try #require(box.request)
+        #expect(request.state == .object(["event": .object(["id": .number(7), "ok": .bool(true)])]))
+    }
+
+    @Test("A --context-json file that starts with a BOM parses")
+    func contextJSONFileWithBOM() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).json")
+        try "\u{FEFF}{\"a\": 1}".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let box = RequestBox()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context-json", "event=@\(url.path)"] + Self.teamQuestion,
+            environment: [:],
+            model: Self.triageModel(recording: box),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(err.isEmpty)
+        let request = try #require(box.request)
+        #expect(request.state == .object(["event": .object(["a": .number(1)])]))
+    }
+
+    @Test("A --context-json value that is not JSON, or only whitespace, exits 10 and reaches no model")
+    func contextJSONNotJSON() async {
+        let cases: [([String], String)] = [
+            (["--context-json", "event=not json"], "Error: context \"event\" is not valid JSON\n"),
+            (["--context-json", "not json"], "Error: the context is not valid JSON\n"),
+            (["--context-json", "   "], "Error: the context is not valid JSON\n"),
+        ]
+        for (line, message) in cases {
+            let model = Self.triageModel()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: line + Self.teamQuestion,
+                environment: [:],
+                model: model,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(line)")
+            #expect(err == message, "\(line)")
+            #expect(out.isEmpty, "\(line)")
+            #expect(model.callCount == 0, "\(line)")
+        }
+    }
+
+    @Test("An empty --context-json file is not JSON: exit 10, no model")
+    func contextJSONEmptyFile() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).json")
+        try "".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context-json", "event=@\(url.path)"] + Self.teamQuestion,
+            environment: [:],
+            model: model,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: context \"event\" is not valid JSON\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
     @Test("A missing named context file exits 10 and reaches no model")
     func missingNamedFile() async {
         let path = "/nonexistent/\(UUID().uuidString).txt"
@@ -2442,6 +2608,17 @@ struct DecideRunTests {
             )
         )
         #expect(out.contains("\n  --context -                    Context from standard input.\n"))
+        #expect(
+            out.contains(
+                """
+                  --context-json <json>          Context parsed as JSON, so the model sees its structure:
+                                                 objects, arrays, numbers, and booleans, not one string.
+                                                 Takes @<path> and - like --context.
+                  --context-json <name>=<json>   A named JSON context, in the same three forms.
+
+                """
+            )
+        )
         #expect(err.isEmpty)
     }
 
@@ -2493,6 +2670,59 @@ struct DecideRunTests {
         #expect(request.state == .text(Self.ticketText))
     }
 
+    @Test("--context-json event=- and --context-json - send standard input's parsed value")
+    func contextJSONFromStandardInput() async throws {
+        let cases: [(String, State)] = [
+            ("event=-", .object(["event": .object(["id": .number(7)])])),
+            ("-", .object(["id": .number(7)])),
+        ]
+        for (value, state) in cases {
+            let input = ScriptedInput("{\"id\": 7}\n")
+            let box = RequestBox()
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--context-json", value] + Self.teamQuestion,
+                environment: [:],
+                model: Self.triageModel(recording: box),
+                standardInput: input.read,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 0, "\(value)")
+            #expect(out == "returns\n", "\(value)")
+            #expect(err.isEmpty, "\(value)")
+            #expect(input.reads == 1, "\(value)")
+            let request = try #require(box.request)
+            #expect(request.state == state, "\(value)")
+        }
+    }
+
+    @Test("Empty standard input under --context-json event=- is not JSON: exit 10, no model")
+    func contextJSONEmptyStandardInput() async {
+        let input = ScriptedInput("")
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--context-json", "event=-"] + Self.teamQuestion,
+            environment: [:],
+            model: model,
+            standardInput: input.read,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: context \"event\" is not valid JSON\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+        #expect(input.reads == 1)
+    }
+
     @Test("--questions - with the README's triage.txt prints its three answers in order")
     func questionsFromStandardInput() async {
         let input = ScriptedInput(Self.readmeTriageText)
@@ -2520,6 +2750,7 @@ struct DecideRunTests {
             ["--questions", "-", "--context", "ticket=-"],
             ["--context", "ticket=-", "--questions", "-"],
             ["--context", "-", "--questions", "-"],
+            ["--context-json", "event=-", "--questions", "-"],
         ]
         for line in lines {
             let input = ScriptedInput(Self.readmeTriageText)

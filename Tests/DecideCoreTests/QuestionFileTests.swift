@@ -477,6 +477,8 @@ struct QuestionFileExpansionTests {
         let cases: [(file: String, flag: String)] = [
             ("Q\n--context c", "--context"),
             ("Q\n--context=secret", "--context"),
+            ("Q\n--context-json x=y", "--context-json"),
+            ("Q\n--context-json=x", "--context-json"),
             ("Q\n--questions @other", "--questions"),
             ("Q\n-q", "-q"),
             ("Q\n--model a:b", "--model"),

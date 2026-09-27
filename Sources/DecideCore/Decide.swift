@@ -22,6 +22,10 @@ public enum Decide {
           --context <name>=@<path>       A named context from a file. With more than one
                                          --context, every one needs a name.
           --context <name>=-             A named context from standard input.
+          --context-json <json>          Context parsed as JSON, so the model sees its structure:
+                                         objects, arrays, numbers, and booleans, not one string.
+                                         Takes @<path> and - like --context.
+          --context-json <name>=<json>   A named JSON context, in the same three forms.
           --questions @<path>            Questions from a file, in the flag's place: a JSON
                                          file when it starts with {, else questions and their
                                          flags split like a command line, # starting a comment.
@@ -93,7 +97,8 @@ public enum Decide {
     /// nothing prints and the code is 11. Before it parses the line, it reads
     /// each `--questions` file and puts its questions in the flag's place.
     /// `-` as a `--context` value or a `--questions` value reads standard
-    /// input, once per run.
+    /// input, once per run. A `--context-json` value, whatever its form, is
+    /// parsed as JSON before the model sees it.
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
@@ -378,22 +383,24 @@ public enum Decide {
     }
 
     /// Reads the run's context into the state the model sees. One context is
-    /// its text. Named contexts are one object, each field the text of the
-    /// context of that name, read in command-line order. Prints the reason to
-    /// `stderr` and returns nil when a file or standard input does not read.
+    /// its text, or its parsed value with `.json`. Named contexts are one
+    /// object, each field the text or parsed value of the context of that
+    /// name, read in command-line order. Prints the reason to `stderr` and
+    /// returns nil when a file or standard input does not read, or when a
+    /// `.json` context's text is not valid JSON.
     private static func loadState(
         _ context: Context,
         standardInput: () throws(ConfigReadError) -> String,
         stderr: inout some TextOutputStream
     ) -> State? {
         switch context {
-        case .single(let source):
+        case .single(let source, let format):
             guard let text = loadContext(
                 source, standardInput: standardInput, stderr: &stderr
             ) else {
                 return nil
             }
-            return .text(text)
+            return state(of: text, as: format, named: nil, stderr: &stderr)
         case .named(let contexts):
             // Assignment, not `Dictionary(uniqueKeysWithValues:)`, which traps
             // on a repeated name. The parser keeps names unique, but
@@ -405,9 +412,42 @@ public enum Decide {
                 ) else {
                     return nil
                 }
-                fields[context.name] = .text(text)
+                guard let value = state(
+                    of: text, as: context.format, named: context.name, stderr: &stderr
+                ) else {
+                    return nil
+                }
+                fields[context.name] = value
             }
             return .object(fields)
+        }
+    }
+
+    /// The state one context's text gives: the text itself for `.text`, or
+    /// its parsed value for `.json`. A leading BOM is dropped before the
+    /// parse, as a question file's is. Prints the reason to `stderr` and
+    /// returns nil when the text is not valid JSON; empty text is not. The
+    /// message carries none of Foundation's detail, which differs by
+    /// platform. `name` is the context's name, or nil for an unnamed one.
+    private static func state(
+        of text: String,
+        as format: ContextFormat,
+        named name: String?,
+        stderr: inout some TextOutputStream
+    ) -> State? {
+        switch format {
+        case .text:
+            return .text(text)
+        case .json:
+            var scalars = text.unicodeScalars[...]
+            if scalars.first == "\u{FEFF}" { scalars.removeFirst() }
+            let data = Data(String(scalars).utf8)
+            guard let state = try? JSONDecoder().decode(State.self, from: data) else {
+                let which = name.map { "context \"\($0)\"" } ?? "the context"
+                print("Error: \(which) is not valid JSON", to: &stderr)
+                return nil
+            }
+            return state
         }
     }
 

@@ -63,6 +63,12 @@ $ decide --context ticket=@ticket.txt \
          --yes yes="Allowed by refund_policy and requested in ticket"
 no
 
+# Give the model structured context; --context-json parses its value as JSON
+$ decide --context-json order='{"total": 45.00, "days_since_delivery": 12}' \
+         --context refund_policy=@refund_policy.txt \
+         "Should we issue a refund?"
+yes
+
 # Improve performance and cost by asking multiple questions at once against the same context
 $ decide --context @ticket.txt \
      "Which team handles this ticket?" \

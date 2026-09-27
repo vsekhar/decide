@@ -639,6 +639,117 @@ struct CommandLineParserTests {
         }
     }
 
+    @Test("--context-json takes every form --context takes, and gives .json")
+    func contextJSONForms() throws {
+        let cases: [([String], Context)] = [
+            (["--context-json", "[1]"], .single(.text("[1]"), .json)),
+            (["--context-json=[1]"], .single(.text("[1]"), .json)),
+            (["--context-json", "@e.json"], .single(.file("e.json"), .json)),
+            (["--context-json=@e.json"], .single(.file("e.json"), .json)),
+            (["--context-json", "-"], .single(.standardInput, .json)),
+            (["--context-json=-"], .single(.standardInput, .json)),
+            (
+                ["--context-json", "event=[1]"],
+                .named([NamedContext(name: "event", source: .text("[1]"), format: .json)])
+            ),
+            (
+                ["--context-json=event=[1]"],
+                .named([NamedContext(name: "event", source: .text("[1]"), format: .json)])
+            ),
+            (
+                ["--context-json", "event=@e.json"],
+                .named([NamedContext(name: "event", source: .file("e.json"), format: .json)])
+            ),
+            (
+                ["--context-json=event=@e.json"],
+                .named([NamedContext(name: "event", source: .file("e.json"), format: .json)])
+            ),
+            (
+                ["--context-json", "event=-"],
+                .named([NamedContext(name: "event", source: .standardInput, format: .json)])
+            ),
+            (
+                ["--context-json=event=-"],
+                .named([NamedContext(name: "event", source: .standardInput, format: .json)])
+            ),
+        ]
+        for (line, context) in cases {
+            let result = try CommandLineParser.parse(line + ["Q", "--option", "a"])
+            #expect(result == .run(Invocation(context: context, questions: [question])), "\(line)")
+        }
+    }
+
+    @Test("--context still gives .text, unnamed and named")
+    func contextFormatText() throws {
+        #expect(
+            try CommandLineParser.parse(["--context", "c", "Q", "--option", "a"])
+                == .run(Invocation(context: .single(.text("c"), .text), questions: [question]))
+        )
+        #expect(
+            try CommandLineParser.parse(["--context", "ticket=c", "Q", "--option", "a"])
+                == .run(
+                    Invocation(
+                        context: .named([NamedContext(name: "ticket", source: .text("c"), format: .text)]),
+                        questions: [question]
+                    )
+                )
+        )
+    }
+
+    @Test("The --context-json value messages name --context-json")
+    func contextJSONMessages() {
+        #expect(
+            throws: UsageError(
+                "--context-json name \"1st\" is not valid: a letter or _ then letters, digits, or _"
+            )
+        ) {
+            try CommandLineParser.parse(["--context-json", "1st=@f", "Q", "--option", "a"])
+        }
+        #expect(throws: UsageError("--context-json event= has no value")) {
+            try CommandLineParser.parse(["--context-json", "event=", "Q", "--option", "a"])
+        }
+        #expect(throws: UsageError("--context-json event=@ names no file")) {
+            try CommandLineParser.parse(["--context-json", "event=@", "Q", "--option", "a"])
+        }
+        #expect(throws: UsageError("--context-json @ names no file")) {
+            try CommandLineParser.parse(["--context-json", "@", "Q", "--option", "a"])
+        }
+    }
+
+    @Test("A name used by both --context and --context-json is an error")
+    func contextJSONRepeatedName() {
+        #expect(throws: UsageError("--context names \"ticket\" twice")) {
+            try CommandLineParser.parse([
+                "--context", "ticket=@t", "--context-json", "ticket=@e", "Q", "--option", "a",
+            ])
+        }
+    }
+
+    @Test("An unnamed --context-json beside a named --context reports the mix rule")
+    func contextJSONMix() {
+        #expect(
+            throws: UsageError(
+                """
+                every --context needs a name when there is more than one, \
+                like --context ticket=@ticket.txt
+                """
+            )
+        ) {
+            try CommandLineParser.parse([
+                "--context-json", "@e", "--context", "policy=@p", "Q", "--option", "a",
+            ])
+        }
+    }
+
+    @Test("Standard input under both --context-json and --context is an error")
+    func contextJSONStandardInputTwice() {
+        #expect(throws: UsageError(CommandLineParser.standardInputTwice)) {
+            try CommandLineParser.parse([
+                "--context-json", "event=-", "--context", "ticket=-", "Q", "--option", "a",
+            ])
+        }
+    }
+
     @Test("--option - is still an option id")
     func optionDash() throws {
         #expect(
@@ -770,6 +881,13 @@ struct CommandLineParserTests {
     func contextWithoutValue() {
         #expect(throws: UsageError("--context needs a value")) {
             try CommandLineParser.parse(["Q", "--option", "a", "--context"])
+        }
+    }
+
+    @Test("--context-json as the last token needs a value")
+    func contextJSONWithoutValue() {
+        #expect(throws: UsageError("--context-json needs a value")) {
+            try CommandLineParser.parse(["Q", "--option", "a", "--context-json"])
         }
     }
 

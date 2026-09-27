@@ -59,14 +59,17 @@ public enum CommandLineParser {
     /// of one object; a name that is not an identifier is an error, not text.
     /// A line with more than one `--context` must name every one. A
     /// `--context` value of `-` is standard input, which a line may name
-    /// once. `--model` and `--api-key` set the model and key for this run,
-    /// over the environment and every config file. `--version` anywhere
-    /// returns `.version(alone:)`, alone or not. Without it, `--help` or `-h`
-    /// anywhere returns `.help`. `--set-config` after those two takes the
-    /// line for itself: `--model`, `--api-key`, and `--project` join it, and
-    /// any other token is an error. `--questions` is an error: the caller
-    /// expands it first, so the parser reads no file. Anything the tool
-    /// cannot run throws a `UsageError` that names the problem.
+    /// once. `--context-json` is `--context` whose value is parsed as JSON,
+    /// in every form, and the two flags share one list, so the rules above
+    /// run across both. `--model` and `--api-key` set the model and key for
+    /// this run, over the environment and every config file. `--version`
+    /// anywhere returns `.version(alone:)`, alone or not. Without it,
+    /// `--help` or `-h` anywhere returns `.help`. `--set-config` after those
+    /// two takes the line for itself: `--model`, `--api-key`, and
+    /// `--project` join it, and any other token is an error. `--questions`
+    /// is an error: the caller expands it first, so the parser reads no
+    /// file. Anything the tool cannot run throws a `UsageError` that names
+    /// the problem.
     public static func parse(_ arguments: [String]) throws(UsageError) -> ParseResult {
         guard !arguments.isEmpty else { throw UsageError("no arguments given") }
         return try parse(items: arguments.map(QuestionFile.Item.token))
@@ -132,7 +135,12 @@ public enum CommandLineParser {
                 }
 
                 if let value = try flagValue(of: "--context", token: token, arguments: arguments, index: &index) {
-                    contexts.append(try contextEntry(from: value))
+                    contexts.append(try contextEntry(from: value, flag: "--context", format: .text))
+                    continue
+                }
+
+                if let value = try flagValue(of: "--context-json", token: token, arguments: arguments, index: &index) {
+                    contexts.append(try contextEntry(from: value, flag: "--context-json", format: .json))
                     continue
                 }
 
@@ -324,7 +332,7 @@ public enum CommandLineParser {
     /// One `--context` value as the parser reads it, before the line's values
     /// are checked together.
     private enum ContextEntry {
-        case unnamed(ContextSource)
+        case unnamed(ContextSource, ContextFormat)
         case named(NamedContext)
     }
 
@@ -660,27 +668,33 @@ public enum CommandLineParser {
         return nil
     }
 
-    /// Reads one `--context` value. The text before the first `=` is a name
-    /// attempt when it is non-empty and holds no whitespace: a valid name makes
-    /// a named context, and an invalid one is an error. Any other value is
-    /// unnamed: the text itself, or a file when it starts with `@`.
-    private static func contextEntry(from value: String) throws(UsageError) -> ContextEntry {
+    /// Reads one `--context` or `--context-json` value; `flag` is the one
+    /// typed, for the messages, and `format` is how the run reads the text.
+    /// The text before the first `=` is a name attempt when it is non-empty
+    /// and holds no whitespace: a valid name makes a named context, and an
+    /// invalid one is an error. Any other value is unnamed: the text itself,
+    /// or a file when it starts with `@`.
+    private static func contextEntry(
+        from value: String,
+        flag: String,
+        format: ContextFormat
+    ) throws(UsageError) -> ContextEntry {
         guard let separator = value.firstIndex(of: "=") else {
-            return .unnamed(try contextSource(from: value, as: "--context "))
+            return .unnamed(try contextSource(from: value, as: "\(flag) "), format)
         }
         let name = String(value[value.startIndex..<separator])
         guard !name.isEmpty, !name.contains(where: \.isWhitespace) else {
-            return .unnamed(try contextSource(from: value, as: "--context "))
+            return .unnamed(try contextSource(from: value, as: "\(flag) "), format)
         }
         guard isIdentifier(name) else {
             throw UsageError(
-                "--context name \"\(name)\" is not valid: a letter or _ then letters, digits, or _"
+                "\(flag) name \"\(name)\" is not valid: a letter or _ then letters, digits, or _"
             )
         }
         let rest = String(value[value.index(after: separator)...])
-        guard !rest.isEmpty else { throw UsageError("--context \(name)= has no value") }
-        let source = try contextSource(from: rest, as: "--context \(name)=")
-        return .named(NamedContext(name: name, source: source))
+        guard !rest.isEmpty else { throw UsageError("\(flag) \(name)= has no value") }
+        let source = try contextSource(from: rest, as: "\(flag) \(name)=")
+        return .named(NamedContext(name: name, source: source, format: format))
     }
 
     /// Whether the text is an identifier: ASCII, a letter or `_` first, then
@@ -698,8 +712,8 @@ public enum CommandLineParser {
     /// Reads the text or path of a `--context` value. `-` alone is standard
     /// input. A leading `@` names a file. Anything else is the text itself,
     /// and a later `@` stays literal. `prefix` is what the names-no-file
-    /// message quotes before the `@`: `--context ` for an unnamed value,
-    /// `--context ticket=` for a named one.
+    /// message quotes before the `@`: the flag and a space for an unnamed
+    /// value, the flag and `ticket=` for a named one.
     private static func contextSource(
         from value: String,
         as prefix: String
@@ -717,7 +731,9 @@ public enum CommandLineParser {
     /// check runs first, so a line with both problems reports the mix.
     private static func context(from entries: [ContextEntry]) throws(UsageError) -> Context? {
         guard !entries.isEmpty else { return nil }
-        if entries.count == 1, case .unnamed(let source) = entries[0] { return .single(source) }
+        if entries.count == 1, case .unnamed(let source, let format) = entries[0] {
+            return .single(source, format)
+        }
         var named: [NamedContext] = []
         for entry in entries {
             guard case .named(let context) = entry else {

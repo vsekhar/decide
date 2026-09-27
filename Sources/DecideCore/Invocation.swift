@@ -52,20 +52,25 @@ public struct Invocation: Sendable, Equatable {
     }
 }
 
-/// The context a run is about: one text, or an object of named texts.
+/// The context a run is about: one value, or an object of named values.
+/// Each value is its source's text, or that text parsed as JSON, as its
+/// format says.
 public enum Context: Sendable, Equatable {
-    /// One unnamed `--context`. The model sees its text as the state.
-    case single(ContextSource)
-    /// Every `--context <name>=...`, in command-line order. The model sees
-    /// one JSON object keyed by name, so a question can refer to a name in
-    /// prose. One named context is a one-field object. The parser keeps
-    /// names unique; the run keeps the last of a repeat.
+    /// One unnamed `--context` or `--context-json`. The model sees its
+    /// text as the state, or the parsed JSON value with `.json`.
+    case single(ContextSource, ContextFormat = .text)
+    /// Every `--context <name>=...` and `--context-json <name>=...`, in
+    /// command-line order. The model sees one JSON object keyed by name, so
+    /// a question can refer to a name in prose. A `.json` context's field
+    /// holds its parsed value beside the text of the others. One named
+    /// context is a one-field object. The parser keeps names unique; the
+    /// run keeps the last of a repeat.
     case named([NamedContext])
 
     /// Whether any source is standard input, which a run reads once.
     public var readsStandardInput: Bool {
         switch self {
-        case .single(let source):
+        case .single(let source, _):
             return source == .standardInput
         case .named(let contexts):
             return contexts.contains { $0.source == .standardInput }
@@ -73,29 +78,44 @@ public enum Context: Sendable, Equatable {
     }
 }
 
-/// One `--context <name>=...`: the name and where its text comes from.
+/// One `--context <name>=...` or `--context-json <name>=...`: the name,
+/// where its text comes from, and how the run reads that text.
 public struct NamedContext: Sendable, Equatable {
     /// The field name in the object the model sees: a letter or `_`, then
     /// letters, digits, or `_`, all ASCII.
     public let name: String
     /// The text itself, or the file that holds it.
     public let source: ContextSource
+    /// Whether the model sees the text itself or its parsed JSON value.
+    public let format: ContextFormat
 
-    public init(name: String, source: ContextSource) {
+    public init(name: String, source: ContextSource, format: ContextFormat = .text) {
         self.name = name
         self.source = source
+        self.format = format
     }
+}
+
+/// How the run turns a context's text into the state the model sees.
+public enum ContextFormat: Sendable, Equatable {
+    /// The text itself, as one string. What `--context` gives.
+    case text
+    /// The text parsed as JSON, so the model sees its structure: an object,
+    /// an array, a number, a boolean, null, or a string. What
+    /// `--context-json` gives. Text that is not valid JSON stops the run.
+    case json
 }
 
 /// Where the context text comes from.
 public enum ContextSource: Sendable, Equatable {
-    /// The text itself, from `--context "..."` or `--context <name>=...`.
+    /// The text itself, from `--context "..."`, `--context <name>=...`, or
+    /// the `--context-json` forms of those.
     case text(String)
-    /// A path, from `--context @path` or `--context <name>=@path`. The run
-    /// reads it as UTF-8.
+    /// A path, from `--context @path`, `--context <name>=@path`, or the
+    /// `--context-json` forms. The run reads it as UTF-8.
     case file(String)
-    /// The whole of standard input, from `--context -` or
-    /// `--context <name>=-`. The run reads it as UTF-8, once.
+    /// The whole of standard input, from `--context -`, `--context <name>=-`,
+    /// or the `--context-json` forms. The run reads it as UTF-8, once.
     case standardInput
 }
 
