@@ -61,8 +61,10 @@ public enum CommandLineParser {
     /// `--context` value of `-` is standard input, which a line may name
     /// once. `--context-json` is `--context` whose value is parsed as JSON,
     /// in every form, and the two flags share one list, so the rules above
-    /// run across both. `--each` runs the questions once per line of standard
-    /// input, which a `-` context must hold, and does not go with `--quiet`.
+    /// run across both; a `--context-json` value that starts with `{`, `[`,
+    /// or `"` is JSON text, never a name. `--each` runs the questions once
+    /// per line of standard input, which a `-` context must hold, and does
+    /// not go with `--quiet`.
     /// `--model` and `--api-key` set the model and key for this run, over the
     /// environment and every config file. `--version` anywhere returns
     /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
@@ -688,12 +690,18 @@ public enum CommandLineParser {
     /// The text before the first `=` is a name attempt when it is non-empty
     /// and holds no whitespace: a valid name makes a named context, and an
     /// invalid one is an error. Any other value is unnamed: the text itself,
-    /// or a file when it starts with `@`.
+    /// or a file when it starts with `@`. Under `--context-json`, a value
+    /// that starts with `{`, `[`, or `"` skips the name attempt and is the
+    /// text itself, because a name starts with a letter or `_`. JSON with
+    /// an `=` inside a string parses.
     private static func contextEntry(
         from value: String,
         flag: String,
         format: ContextFormat
     ) throws(UsageError) -> ContextEntry {
+        if format == .json, let first = value.first, ["{", "[", "\""].contains(first) {
+            return .unnamed(.text(value), format)
+        }
         guard let separator = value.firstIndex(of: "=") else {
             return .unnamed(try contextSource(from: value, as: "\(flag) "), format)
         }

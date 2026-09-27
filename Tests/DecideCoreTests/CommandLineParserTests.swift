@@ -696,6 +696,36 @@ struct CommandLineParserTests {
         )
     }
 
+    @Test("A --context-json value that starts with {, [, or \" is JSON text, even with an = inside")
+    func contextJSONStartsLikeJSON() throws {
+        let values = [
+            "{\"a\":\"x=y\"}",
+            "{\"sig\":\"YWJj==\"}",
+            "[\"k=v\"]",
+            "\"k=v\"",
+        ]
+        for value in values {
+            for line in [["--context-json", value], ["--context-json=" + value]] {
+                let result = try CommandLineParser.parse(line + ["Q", "--option", "a"])
+                #expect(
+                    result == .run(Invocation(context: .single(.text(value), .json), questions: [question])),
+                    "\(line)"
+                )
+            }
+        }
+    }
+
+    @Test("--context keeps the name rule for a value that starts like JSON")
+    func contextStartsLikeJSON() {
+        #expect(
+            throws: UsageError(
+                "--context name \"{\"a\":\"x\" is not valid: a letter or _ then letters, digits, or _"
+            )
+        ) {
+            try CommandLineParser.parse(["--context", "{\"a\":\"x=y\"}", "Q", "--option", "a"])
+        }
+    }
+
     @Test("The --context-json value messages name --context-json")
     func contextJSONMessages() {
         #expect(

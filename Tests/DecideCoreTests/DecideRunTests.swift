@@ -1167,6 +1167,7 @@ struct DecideRunTests {
         let cases: [(String, State)] = [
             ("[1, 2, 3]", .array([.number(1), .number(2), .number(3)])),
             ("\"just text\"", .text("just text")),
+            ("{\"sig\":\"YWJj==\"}", .object(["sig": .text("YWJj==")])),
         ]
         for (value, state) in cases {
             let box = RequestBox()
