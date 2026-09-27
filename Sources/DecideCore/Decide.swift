@@ -67,7 +67,10 @@ public enum Decide {
           --model <model>                The model for this run, provider:model. Wins over
                                          the environment and every config file.
           --api-key <key>                The API key for this run. Wins over the environment
-                                         and every config file.
+                                         and every config file. --api-key - reads the key from
+                                         standard input: a prompt with echo off at a terminal,
+                                         one line from a pipe. --api-key with no value does the
+                                         same.
           --set-config                   Write --model and --api-key to the home config and exit.
           --project                      With --set-config, write ./.decide/config instead.
           --help, -h                     Print this text.
@@ -102,12 +105,13 @@ public enum Decide {
     /// has a fallback, the fallbacks print and the run is decided; otherwise
     /// nothing prints and the code is 11. Before it parses the line, it reads
     /// each `--questions` file and puts its questions in the flag's place.
-    /// `-` as a `--context` value or a `--questions` value reads standard
-    /// input, once per run. A `--context-json` value, whatever its form, is
-    /// parsed as JSON before the model sees it. `--each` runs the questions
-    /// once per line of standard input, which the `-` context holds; each
-    /// event prints its own lines, stderr names the input line, and the code
-    /// is the highest any event produced.
+    /// `-` as a `--context`, `--questions`, or `--api-key` value reads
+    /// standard input, once per run; the key is one line, asked for with a
+    /// prompt and echo off at a terminal. A `--context-json` value, whatever
+    /// its form, is parsed as JSON before the model sees it. `--each` runs
+    /// the questions once per line of standard input, which the `-` context
+    /// holds; each event prints its own lines, stderr names the input line,
+    /// and the code is the highest any event produced.
     ///
     /// A `currentDirectory` turns on config files: `.decide/config` there
     /// and in each parent, then the home files, laid under `environment`.
@@ -136,7 +140,7 @@ public enum Decide {
             )
             parsed = try CommandLineParser.parse(items: items)
             if standardInputWasRead, case .run(let invocation) = parsed,
-               invocation.context?.readsStandardInput == true {
+               invocation.readsStandardInput {
                 throw UsageError(CommandLineParser.standardInputTwice)
             }
         } catch let error as UsageError {
@@ -146,7 +150,7 @@ public enum Decide {
             print(ExitCode.message(for: error), to: &stderr)
             return ExitCode.setup
         }
-        let invocation: Invocation
+        var invocation: Invocation
         switch parsed {
         case .help:
             print(usage, to: &stdout)
@@ -164,6 +168,7 @@ public enum Decide {
                 request,
                 environment: environment,
                 currentDirectory: currentDirectory,
+                standardInput: standardInput,
                 stderr: &stderr
             )
         case .run(let parsedInvocation):
@@ -181,6 +186,14 @@ public enum Decide {
             } catch {
                 print(ExitCode.message(for: error), to: &stderr)
                 return ExitCode.code(for: error)
+            }
+        }
+        if invocation.apiKey == .standardInput {
+            do {
+                invocation.apiKey = .value(try readAPIKey(from: standardInput, stderr: &stderr))
+            } catch {
+                print(ExitCode.message(for: error), to: &stderr)
+                return ExitCode.setup
             }
         }
         environment = invocation.applied(to: environment)
@@ -422,14 +435,25 @@ public enum Decide {
     }
 
     /// Writes what `--set-config` names into a config file and gives the
-    /// exit code. Success prints nothing. Every failure prints one line to
-    /// `stderr` and leaves the file as it was.
+    /// exit code. A key from standard input is read first. Success prints
+    /// nothing. Every failure prints one line to `stderr` and leaves the
+    /// file as it was.
     private static func setConfig(
         _ request: SetConfig,
         environment: [String: String],
         currentDirectory: String?,
+        standardInput: any StandardInputReading,
         stderr: inout some TextOutputStream
     ) -> Int32 {
+        var request = request
+        if request.apiKey == .standardInput {
+            do {
+                request.apiKey = .value(try readAPIKey(from: standardInput, stderr: &stderr))
+            } catch {
+                print(ExitCode.message(for: error), to: &stderr)
+                return ExitCode.setup
+            }
+        }
         let pairs: [(key: String, value: String)]
         let path: String
         do {
@@ -470,10 +494,40 @@ public enum Decide {
             _ = try ModelConfiguration(environment: [ModelConfiguration.modelVariable: model])
             pairs.append((ModelConfiguration.modelVariable, model))
         }
-        if let apiKey = request.apiKey {
+        // A `.standardInput` key never reaches here: `setConfig` reads it
+        // into `.value` first.
+        if case .value(let apiKey)? = request.apiKey {
             pairs.append((ModelConfiguration.apiKeyVariable, apiKey))
         }
         return pairs
+    }
+
+    /// Reads the key `--api-key -` asks for: one line of standard input,
+    /// trimmed. At a terminal it prompts on `stderr` first, with no line
+    /// ending, and ends the line after the read, because echo off swallowed
+    /// the user's Enter; the line ends even when the read throws, so the
+    /// error starts on its own line. From a pipe it prints nothing, so a
+    /// script's stderr stays clean. An empty line, or end of file before
+    /// any line, is `.empty`.
+    private static func readAPIKey(
+        from standardInput: any StandardInputReading,
+        stderr: inout some TextOutputStream
+    ) throws(APIKeyError) -> String {
+        let prompts = standardInput.isTerminal
+        if prompts { print("API key: ", terminator: "", to: &stderr) }
+        defer { if prompts { print("", to: &stderr) } }
+        let line: String?
+        do {
+            line = try standardInput.readSecretLine()
+        } catch {
+            switch error {
+            case .unreadable: throw .unreadable
+            case .notUTF8: throw .notUTF8
+            }
+        }
+        let key = line?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !key.isEmpty else { throw .empty }
+        return key
     }
 
     /// The file a `--set-config` run writes: the home config, or the
@@ -685,6 +739,26 @@ enum ContextLoadError: Error, Equatable {
         case .lineNotUTF8: "the line is not valid UTF-8"
         case .notJSON(let name):
             (name.map { "context \"\($0)\"" } ?? "the context") + " is not valid JSON"
+        }
+    }
+}
+
+/// Why `--api-key -` gave no key: standard input held none, did not
+/// read, or was not UTF-8.
+enum APIKeyError: Error, Equatable {
+    /// An empty line, or end of file before any line.
+    case empty
+    /// Standard input that does not read.
+    case unreadable
+    /// A line that is not UTF-8.
+    case notUTF8
+
+    /// The message, after `Error: `.
+    var message: String {
+        switch self {
+        case .empty: "standard input holds no API key"
+        case .unreadable: "cannot read standard input"
+        case .notUTF8: "standard input is not valid UTF-8"
         }
     }
 }

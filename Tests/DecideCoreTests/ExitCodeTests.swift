@@ -50,6 +50,9 @@ private func errorTable() -> [(error: any Error, code: Int32)] {
         (ContextLoadError.lineNotUTF8, 10),
         (ContextLoadError.notJSON(name: "event"), 10),
         (ContextLoadError.notJSON(name: nil), 10),
+        (APIKeyError.empty, 10),
+        (APIKeyError.unreadable, 10),
+        (APIKeyError.notUTF8, 10),
         (CancellationError(), 11),
         (Unknown(), 11),
     ]
@@ -154,6 +157,19 @@ struct ExitCodeTests {
             (.lineNotUTF8, "the line is not valid UTF-8"),
             (.notJSON(name: "event"), "context \"event\" is not valid JSON"),
             (.notJSON(name: nil), "the context is not valid JSON"),
+        ]
+        for (error, message) in cases {
+            #expect(ExitCode.message(for: error) == "Error: " + message, "\(error)")
+            #expect(ExitCode.code(for: error) == 10, "\(error)")
+        }
+    }
+
+    @Test("An API key error gives Error: and its message, and code 10")
+    func apiKeyMessages() {
+        let cases: [(APIKeyError, String)] = [
+            (.empty, "standard input holds no API key"),
+            (.unreadable, "cannot read standard input"),
+            (.notUTF8, "standard input is not valid UTF-8"),
         ]
         for (error, message) in cases {
             #expect(ExitCode.message(for: error) == "Error: " + message, "\(error)")

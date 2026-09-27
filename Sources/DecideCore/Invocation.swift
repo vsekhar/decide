@@ -23,8 +23,9 @@ public struct Invocation: Sendable, Equatable {
     /// and the config files.
     public var model: String?
     /// The API key for this run from `--api-key`, or nil to use the
-    /// environment and the config files.
-    public var apiKey: String?
+    /// environment and the config files. `.standardInput` until the run
+    /// reads the key, which it does before it makes the model.
+    public var apiKey: KeySource?
 
     public init(
         context: Context?,
@@ -33,7 +34,7 @@ public struct Invocation: Sendable, Equatable {
         json: Bool = false,
         each: Bool = false,
         model: String? = nil,
-        apiKey: String? = nil
+        apiKey: KeySource? = nil
     ) {
         self.context = context
         self.questions = questions
@@ -46,14 +47,38 @@ public struct Invocation: Sendable, Equatable {
 
     /// The environment with this run's `--model` and `--api-key` laid over
     /// it: `DECIDE_MODEL` is `model` when that is set, and
-    /// `DECIDE_MODEL_API_KEY` is `apiKey` when that is set. Every other
-    /// variable passes through. Pure, so the precedence is testable without
-    /// a model.
+    /// `DECIDE_MODEL_API_KEY` is the key when `apiKey` is `.value`. A
+    /// `.standardInput` key leaves the variable alone: the run reads it
+    /// and sets `.value` first. Every other variable passes through. Pure,
+    /// so the precedence is testable without a model.
     public func applied(to environment: [String: String]) -> [String: String] {
         var environment = environment
         if let model { environment[ModelConfiguration.modelVariable] = model }
-        if let apiKey { environment[ModelConfiguration.apiKeyVariable] = apiKey }
+        if case .value(let apiKey)? = apiKey { environment[ModelConfiguration.apiKeyVariable] = apiKey }
         return environment
+    }
+
+    /// Whether the context or the key reads standard input, which a run
+    /// reads once.
+    public var readsStandardInput: Bool {
+        context?.readsStandardInput == true || apiKey == .standardInput
+    }
+}
+
+/// Where an `--api-key` value comes from, on a run line or under
+/// `--set-config`.
+public enum KeySource: Sendable, Equatable, ExpressibleByStringLiteral {
+    /// The key itself, from `--api-key <key>` or `--api-key=<key>`.
+    case value(String)
+    /// One line of standard input, from `--api-key -`, `--api-key=-`, or
+    /// `--api-key` with no value: a prompt with echo off at a terminal,
+    /// one line from a pipe. The run reads it once, before it uses the
+    /// key.
+    case standardInput
+
+    /// A string literal is the key itself, so a test writes `apiKey: "k"`.
+    public init(stringLiteral value: String) {
+        self = .value(value)
     }
 }
 

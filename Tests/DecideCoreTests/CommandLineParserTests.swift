@@ -1748,6 +1748,86 @@ struct CommandLineParserTests {
         #expect(try CommandLineParser.parse(["Q", "--option", "a", "--api-key=k"]) == expected)
     }
 
+    @Test("--api-key - and --api-key=- read the run's key from standard input")
+    func apiKeyStandardInput() throws {
+        let expected = ParseResult.run(
+            Invocation(context: nil, questions: [question], apiKey: .standardInput)
+        )
+        let lines = [
+            ["--api-key", "-", "Q", "--option", "a"],
+            ["Q", "--option", "a", "--api-key=-"],
+        ]
+        for line in lines {
+            #expect(try CommandLineParser.parse(line) == expected, "\(line)")
+        }
+    }
+
+    @Test("--api-key as the last token reads the key from standard input")
+    func apiKeyLast() throws {
+        #expect(
+            try CommandLineParser.parse(["Q", "--option", "a", "--api-key"])
+                == .run(Invocation(context: nil, questions: [question], apiKey: .standardInput))
+        )
+    }
+
+    @Test("--api-key before a flag reads standard input, and the flag stands on its own")
+    func apiKeyBeforeAFlag() throws {
+        #expect(
+            try CommandLineParser.parse(["--api-key", "--context", "c", "Q", "--option", "a"])
+                == .run(
+                    Invocation(
+                        context: .single(.text("c")), questions: [question], apiKey: .standardInput
+                    )
+                )
+        )
+        #expect(
+            try CommandLineParser.parse(["--api-key", "--model", "a:b", "Q", "--option", "a"])
+                == .run(
+                    Invocation(
+                        context: nil, questions: [question], model: "a:b", apiKey: .standardInput
+                    )
+                )
+        )
+        #expect(
+            try CommandLineParser.parse(["Q", "--api-key", "-q"])
+                == .run(
+                    Invocation(
+                        context: nil,
+                        questions: [
+                            Question(
+                                instructions: "Q",
+                                kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no"))
+                            )
+                        ],
+                        quiet: true,
+                        apiKey: .standardInput
+                    )
+                )
+        )
+    }
+
+    @Test("--api-key - beside a - context names standard input twice")
+    func apiKeyStandardInputTwice() {
+        let lines = [
+            ["--api-key", "-", "--context", "-", "Q", "--option", "a"],
+            ["--api-key", "-", "--context", "ticket=-", "Q", "--option", "a"],
+            ["--api-key", "-", "--context-json", "event=-", "Q", "--option", "a"],
+            ["--context", "event=-", "--each", "--api-key", "-", "Q", "--option", "a"],
+        ]
+        for line in lines {
+            #expect(throws: UsageError(CommandLineParser.standardInputTwice), "\(line)") {
+                try CommandLineParser.parse(line)
+            }
+        }
+    }
+
+    @Test("--each with --api-key - and no - context has no events to read")
+    func eachWithOnlyTheKeyOnStandardInput() {
+        #expect(throws: UsageError(CommandLineParser.eachNeedsStandardInput)) {
+            try CommandLineParser.parse(["--each", "--api-key", "-", "Q", "--option", "a"])
+        }
+    }
+
     @Test("--model and --api-key work anywhere on a line with a context and questions")
     func modelAndKeyAnywhere() throws {
         let result = try CommandLineParser.parse([
@@ -1779,6 +1859,9 @@ struct CommandLineParserTests {
         let lines: [(String, [String])] = [
             ("--model", ["Q", "--model", "a:b", "--model=c:d"]),
             ("--api-key", ["Q", "--api-key", "k", "--api-key=k2"]),
+            ("--api-key", ["Q", "--api-key", "-", "--api-key", "k"]),
+            ("--api-key", ["Q", "--api-key", "--api-key"]),
+            ("--api-key", ["Q", "--api-key=-", "--api-key=-"]),
         ]
         for (flag, line) in lines {
             #expect(throws: UsageError("\(flag) was given twice"), "\(line)") {
@@ -1797,6 +1880,12 @@ struct CommandLineParserTests {
         }
         #expect(throws: UsageError("--api-key is empty")) {
             try CommandLineParser.parse(["Q", "--api-key", ""])
+        }
+        #expect(throws: UsageError("--api-key is empty")) {
+            try CommandLineParser.parse(["Q", "--api-key="])
+        }
+        #expect(throws: UsageError("--api-key is empty")) {
+            try CommandLineParser.parse(["Q", "--api-key", " "])
         }
     }
 
@@ -1871,6 +1960,10 @@ struct CommandLineParserTests {
         #expect(throws: UsageError("--project needs --set-config")) {
             try CommandLineParser.parse(["Q", "--project"])
         }
+        // A bare --api-key before it reads standard input and leaves it alone.
+        #expect(throws: UsageError("--project needs --set-config")) {
+            try CommandLineParser.parse(["Q", "--api-key", "--project"])
+        }
     }
 
     @Test("--set-config with nothing to write is an error")
@@ -1889,6 +1982,7 @@ struct CommandLineParserTests {
             ("--set-config", ["--set-config", "--set-config", "--model", "typesafe:jev-latest"]),
             ("--model", ["--set-config", "--model", "typesafe:jev-latest", "--model=x:y"]),
             ("--api-key", ["--set-config", "--api-key", "k", "--api-key=k2"]),
+            ("--api-key", ["--set-config", "--api-key=-", "--api-key", "-"]),
             ("--project", ["--set-config", "--api-key", "k", "--project", "--project"]),
         ]
         for (flag, line) in lines {
@@ -1909,6 +2003,12 @@ struct CommandLineParserTests {
         #expect(throws: UsageError("--api-key is empty")) {
             try CommandLineParser.parse(["--set-config", "--api-key", ""])
         }
+        #expect(throws: UsageError("--api-key is empty")) {
+            try CommandLineParser.parse(["--set-config", "--api-key="])
+        }
+        #expect(throws: UsageError("--api-key is empty")) {
+            try CommandLineParser.parse(["--set-config", "--api-key", " "])
+        }
     }
 
     @Test("--api-key with --project is refused")
@@ -1917,6 +2017,35 @@ struct CommandLineParserTests {
             throws: UsageError("--api-key is allowed only in the home config, not in a project's")
         ) {
             try CommandLineParser.parse(["--set-config", "--api-key", "k", "--project"])
+        }
+    }
+
+    @Test("--set-config reads the key from standard input with -, =-, or no value")
+    func setConfigKeyFromStandardInput() throws {
+        let lines = [
+            ["--set-config", "--api-key", "-"],
+            ["--set-config", "--api-key=-"],
+            ["--set-config", "--api-key"],
+        ]
+        for line in lines {
+            #expect(
+                try CommandLineParser.parse(line)
+                    == .setConfig(SetConfig(model: nil, apiKey: .standardInput)),
+                "\(line)"
+            )
+        }
+        #expect(
+            try CommandLineParser.parse(["--set-config", "--api-key", "--model", "a:b"])
+                == .setConfig(SetConfig(model: "a:b", apiKey: .standardInput))
+        )
+    }
+
+    @Test("--api-key before --project reads standard input, so --project is refused")
+    func setConfigKeyFromStandardInputWithProject() {
+        #expect(
+            throws: UsageError("--api-key is allowed only in the home config, not in a project's")
+        ) {
+            try CommandLineParser.parse(["--set-config", "--api-key", "--project"])
         }
     }
 

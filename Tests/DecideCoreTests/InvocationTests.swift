@@ -77,8 +77,34 @@ struct InvocationTests {
         #expect(environment == before)
     }
 
+    @Test("A key from standard input leaves the environment alone")
+    func aStandardInputKeyChangesNothing() {
+        let before = [ModelConfiguration.apiKeyVariable: "old", "X": "1"]
+
+        let environment = invocation(model: nil, apiKey: .standardInput).applied(to: before)
+
+        #expect(environment == before)
+    }
+
+    @Test("A run reads standard input when its key or its context does")
+    func readsStandardInput() {
+        let question = Question(
+            instructions: "Q",
+            kind: .verdict(yes: Option(id: "yes"), no: Option(id: "no"))
+        )
+        let cases: [(Invocation, Bool)] = [
+            (Invocation(context: nil, questions: [question], apiKey: .standardInput), true),
+            (Invocation(context: nil, questions: [question], apiKey: .value("k")), false),
+            (Invocation(context: .single(.standardInput), questions: [question]), true),
+            (Invocation(context: nil, questions: [question]), false),
+        ]
+        for (run, expected) in cases {
+            #expect(run.readsStandardInput == expected, "\(run)")
+        }
+    }
+
     /// One run of one yes/no question, with the model and key a line gave.
-    private func invocation(model: String?, apiKey: String?) -> Invocation {
+    private func invocation(model: String?, apiKey: KeySource?) -> Invocation {
         Invocation(
             context: nil,
             questions: [

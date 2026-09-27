@@ -31,6 +31,8 @@ public enum ExitCode {
             setup
         case is ContextLoadError:
             setup
+        case is APIKeyError:
+            setup
         case let error as DecisionError:
             code(for: error)
         default:
@@ -48,6 +50,8 @@ public enum ExitCode {
         case let error as ConfigError:
             oneLine(message(for: error))
         case let error as ContextLoadError:
+            oneLine("Error: \(error.message)")
+        case let error as APIKeyError:
             oneLine("Error: \(error.message)")
         case let error as DecisionError:
             oneLine(message(for: error))

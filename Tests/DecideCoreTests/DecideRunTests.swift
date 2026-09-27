@@ -1970,10 +1970,118 @@ struct DecideRunTests {
         #expect(err.isEmpty)
     }
 
+    @Test("--api-key - reads the key from a pipe once and the run answers")
+    func runKeyFromStandardInput() async {
+        let input = ScriptedInput("k\n")
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--api-key", "-"] + Self.spamQuestion,
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out == "yes\n")
+        #expect(err.isEmpty)
+        #expect(input.reads == 1)
+    }
+
+    @Test("At a terminal the key's prompt comes before the run's own stderr")
+    func runKeyPromptsBeforeTheRunsStderr() async {
+        let line = Self.spamQuestion + ["--min-confidence", "0.9"]
+        var referenceOut = ""
+        var reference = ""
+        let referenceCode = await Decide.run(
+            arguments: line,
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            standardInput: ScriptedInput(""),
+            stdout: &referenceOut,
+            stderr: &reference
+        )
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--api-key", "-"] + line,
+            environment: [:],
+            model: Self.spamModel(probability: 0.8),
+            standardInput: ScriptedInput("k\n", isTerminal: true),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(referenceCode == 2)
+        #expect(code == 2)
+        #expect(out == referenceOut)
+        #expect(err == "API key: \n" + reference)
+    }
+
+    @Test("--api-key - with no key on standard input exits 10 and reaches no model")
+    func runKeyFromEmptyStandardInput() async {
+        let model = Self.spamModel(probability: 0.8)
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--api-key", "-"] + Self.spamQuestion,
+            environment: [:],
+            model: model,
+            standardInput: ScriptedInput(""),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: standard input holds no API key\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+    }
+
+    @Test("A malformed --model with --api-key - reads the key, then reports the model")
+    func runKeyIsReadBeforeTheModelIsMade() async {
+        let input = ScriptedInput("k\n")
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--model", "nosuch", "--api-key", "-"] + Self.teamQuestion,
+            environment: [:],
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("is not provider:model"))
+        #expect(out.isEmpty)
+        #expect(input.reads == 1)
+    }
+
     @Test("The usage text lists --model and --api-key as run flags")
     func usageListsTheRunFlags() {
         #expect(Decide.usage.contains("  --model <model>                The model for this run"))
         #expect(Decide.usage.contains("  --api-key <key>                The API key for this run"))
+    }
+
+    @Test("The usage text says --api-key - reads the key from standard input")
+    func usageListsTheKeyFromStandardInput() {
+        #expect(
+            Decide.usage.contains(
+                """
+                  --api-key <key>                The API key for this run. Wins over the environment
+                                                 and every config file. --api-key - reads the key from
+                                                 standard input: a prompt with echo off at a terminal,
+                                                 one line from a pipe. --api-key with no value does the
+                                                 same.
+                """
+            )
+        )
     }
 
     @Test("--set-config writes the home config, prints nothing, and exits 0")
@@ -2148,6 +2256,189 @@ struct DecideRunTests {
         #expect(!FileManager.default.fileExists(atPath: tree.homeFile))
     }
 
+    @Test("--set-config --api-key - writes the key from a pipe and prints nothing")
+    func setConfigKeyFromStandardInput() async throws {
+        for flag in [["--api-key", "-"], ["--api-key=-"]] {
+            let tree = try ConfigTree()
+            defer { tree.remove() }
+            let input = ScriptedInput("secret\n")
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--set-config"] + flag,
+                environment: ["HOME": tree.home],
+                currentDirectory: tree.sub,
+                standardInput: input,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 0, "\(flag)")
+            #expect(out.isEmpty, "\(flag)")
+            #expect(err.isEmpty, "\(flag)")
+            let text = try String(contentsOfFile: tree.homeFile, encoding: .utf8)
+            #expect(text == "DECIDE_MODEL_API_KEY = \"secret\"\n", "\(flag)")
+            #expect(tree.mode(tree.homeFile) == 0o600, "\(flag)")
+            #expect(input.reads == 1, "\(flag)")
+        }
+    }
+
+    @Test("The README setup line writes the model and the key from standard input")
+    func setConfigReadmeSetupLine() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "typesafe:jev-latest", "--api-key", "-"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            standardInput: ScriptedInput("k\n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        let text = try String(contentsOfFile: tree.homeFile, encoding: .utf8)
+        #expect(text == "DECIDE_MODEL = \"typesafe:jev-latest\"\nDECIDE_MODEL_API_KEY = \"k\"\n")
+    }
+
+    @Test("At a terminal --api-key - prompts on stderr and ends the line after the read")
+    func setConfigKeyPromptsAtATerminal() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--api-key", "-"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            standardInput: ScriptedInput("secret\n", isTerminal: true),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        #expect(out.isEmpty)
+        #expect(err == "API key: \n")
+        let text = try String(contentsOfFile: tree.homeFile, encoding: .utf8)
+        #expect(text == "DECIDE_MODEL_API_KEY = \"secret\"\n")
+    }
+
+    @Test("A key from standard input is trimmed before it is written")
+    func setConfigKeyFromStandardInputIsTrimmed() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--api-key", "-"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            standardInput: ScriptedInput("  secret  \n"),
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 0)
+        let text = try String(contentsOfFile: tree.homeFile, encoding: .utf8)
+        #expect(text == "DECIDE_MODEL_API_KEY = \"secret\"\n")
+    }
+
+    @Test("An empty line or no line for --api-key - exits 10 and writes nothing")
+    func setConfigKeyFromEmptyStandardInput() async throws {
+        let cases: [(ScriptedInput, String)] = [
+            (ScriptedInput(""), "Error: standard input holds no API key\n"),
+            (ScriptedInput("\n"), "Error: standard input holds no API key\n"),
+            (
+                ScriptedInput("", isTerminal: true),
+                "API key: \nError: standard input holds no API key\n"
+            ),
+        ]
+        for (input, message) in cases {
+            let tree = try ConfigTree()
+            defer { tree.remove() }
+            var out = ""
+            var err = ""
+
+            let code = await Decide.run(
+                arguments: ["--set-config", "--api-key", "-"],
+                environment: ["HOME": tree.home],
+                currentDirectory: tree.sub,
+                standardInput: input,
+                stdout: &out,
+                stderr: &err
+            )
+
+            #expect(code == 10, "\(message)")
+            #expect(err == message, "\(message)")
+            #expect(out.isEmpty, "\(message)")
+            #expect(!FileManager.default.fileExists(atPath: tree.homeFile), "\(message)")
+        }
+    }
+
+    @Test("Standard input that does not read, or is not UTF-8, gives no key and writes nothing")
+    func setConfigKeyFromFailingStandardInput() async throws {
+        let cases: [(ConfigReadError, String)] = [
+            (.unreadable, "Error: cannot read standard input\n"),
+            (.notUTF8, "Error: standard input is not valid UTF-8\n"),
+        ]
+        for (failure, message) in cases {
+            for isTerminal in [false, true] {
+                let tree = try ConfigTree()
+                defer { tree.remove() }
+                var out = ""
+                var err = ""
+
+                let code = await Decide.run(
+                    arguments: ["--set-config", "--api-key", "-"],
+                    environment: ["HOME": tree.home],
+                    currentDirectory: tree.sub,
+                    standardInput: ScriptedInput(failing: failure, isTerminal: isTerminal),
+                    stdout: &out,
+                    stderr: &err
+                )
+
+                // At a terminal the prompt's line ends before the error.
+                let expected = (isTerminal ? "API key: \n" : "") + message
+                #expect(code == 10, "\(failure) \(isTerminal)")
+                #expect(err == expected, "\(failure) \(isTerminal)")
+                #expect(out.isEmpty, "\(failure) \(isTerminal)")
+                #expect(
+                    !FileManager.default.fileExists(atPath: tree.homeFile), "\(failure) \(isTerminal)"
+                )
+            }
+        }
+    }
+
+    @Test("--set-config --api-key --project exits 10 and reads nothing")
+    func setConfigKeyFromStandardInputToAProject() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        let input = ScriptedInput("secret\n")
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--api-key", "--project"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("--api-key is allowed only in the home config"))
+        #expect(input.reads == 0)
+        #expect(!FileManager.default.fileExists(atPath: tree.sub + "/.decide/config"))
+        #expect(!FileManager.default.fileExists(atPath: tree.homeFile))
+    }
+
     @Test("A malformed home config exits 10, names its line, and stays as it was")
     func setConfigOnAMalformedFile() async throws {
         let before = "DECIDE_MODEL = typesafe:jev-latest\n"
@@ -2191,6 +2482,30 @@ struct DecideRunTests {
         #expect(!FileManager.default.fileExists(atPath: tree.homeFile))
     }
 
+    @Test("A bad --model with --api-key - reads the key, then writes nothing")
+    func setConfigReadsTheKeyBeforeItRefusesABadModel() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        let input = ScriptedInput("k\n")
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--model", "jev-latest", "--api-key", "-"],
+            environment: ["HOME": tree.home],
+            currentDirectory: tree.sub,
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("DECIDE_MODEL \"jev-latest\" is not provider:model"))
+        #expect(out.isEmpty)
+        #expect(input.reads == 1)
+        #expect(!FileManager.default.fileExists(atPath: tree.homeFile))
+    }
+
     @Test("--set-config with no HOME exits 10")
     func setConfigWithoutHome() async throws {
         let tree = try ConfigTree()
@@ -2209,6 +2524,30 @@ struct DecideRunTests {
         #expect(code == 10)
         #expect(err.contains("HOME is not set, so there is no home config"))
         #expect(out.isEmpty)
+    }
+
+    @Test("--api-key - with no HOME reads the key, then exits 10 and writes nothing")
+    func setConfigKeyFromStandardInputWithoutHome() async throws {
+        let tree = try ConfigTree()
+        defer { tree.remove() }
+        let input = ScriptedInput("k\n")
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--set-config", "--api-key", "-"],
+            environment: [:],
+            currentDirectory: tree.sub,
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err.contains("HOME is not set, so there is no home config"))
+        #expect(out.isEmpty)
+        #expect(input.reads == 1)
+        #expect(!FileManager.default.fileExists(atPath: tree.sub + "/.decide/config"))
     }
 
     @Test("--project without a working directory exits 10")
@@ -2777,6 +3116,52 @@ struct DecideRunTests {
             #expect(model.callCount == 0, "\(line)")
             #expect(input.reads <= 1, "\(line)")
         }
+    }
+
+    @Test("--api-key - with --questions - exits 10 with the usage text and reaches no model")
+    func keyAndQuestionsFromStandardInput() async {
+        let input = ScriptedInput(Self.readmeTriageText)
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--api-key", "-", "--questions", "-"],
+            environment: [:],
+            model: model,
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: - was given twice: standard input reads once\n\n" + Decide.usage + "\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+        #expect(input.reads == 1)
+    }
+
+    @Test("--api-key - with --context - is refused by the parser and reads nothing")
+    func keyAndContextFromStandardInput() async {
+        let input = ScriptedInput(Self.readmeTriageText)
+        let model = Self.triageModel()
+        var out = ""
+        var err = ""
+
+        let code = await Decide.run(
+            arguments: ["--api-key", "-", "--context", "-"] + Self.teamQuestion,
+            environment: [:],
+            model: model,
+            standardInput: input,
+            stdout: &out,
+            stderr: &err
+        )
+
+        #expect(code == 10)
+        #expect(err == "Error: - was given twice: standard input reads once\n\n" + Decide.usage + "\n")
+        #expect(out.isEmpty)
+        #expect(model.callCount == 0)
+        #expect(input.reads == 0)
     }
 
     @Test("Standard input that does not read, or is not UTF-8, exits 10 and reaches no model")
@@ -3473,7 +3858,9 @@ private struct ConfigTree {
 }
 
 /// Standard input for a run: gives the text whole or line by line, or
-/// throws the error, and counts each read of either kind.
+/// throws the error, and counts each read of any kind. It also gives one
+/// secret line, which is its next line. `isTerminal` says whether a key
+/// read prompts.
 ///
 /// `init(_:)` splits the text into lines as the real reader does: at each
 /// line feed, a carriage return before it dropped, a last line with no line
@@ -3482,8 +3869,10 @@ private final class ScriptedInput: StandardInputReading {
     private let whole: Result<String, ConfigReadError>
     private var lines: [Result<String, ConfigReadError>]
     private(set) var reads = 0
+    let isTerminal: Bool
 
-    init(_ text: String) {
+    init(_ text: String, isTerminal: Bool = false) {
+        self.isTerminal = isTerminal
         whole = .success(text)
         // Scalars, not characters: a carriage return and a line feed form
         // one character.
@@ -3494,12 +3883,14 @@ private final class ScriptedInput: StandardInputReading {
         }
     }
 
-    init(failing error: ConfigReadError) {
+    init(failing error: ConfigReadError, isTerminal: Bool = false) {
+        self.isTerminal = isTerminal
         whole = .failure(error)
         lines = [.failure(error)]
     }
 
     init(lines: [Result<String, ConfigReadError>]) {
+        isTerminal = false
         whole = .success("")
         self.lines = lines
     }
@@ -3513,6 +3904,10 @@ private final class ScriptedInput: StandardInputReading {
         reads += 1
         guard !lines.isEmpty else { return nil }
         return try lines.removeFirst().get()
+    }
+
+    func readSecretLine() throws(ConfigReadError) -> String? {
+        try readLine()
     }
 }
 

@@ -13,20 +13,21 @@ public enum ParseResult: Equatable, Sendable {
 /// What `--set-config` writes, and where.
 ///
 /// At least one of `model` and `apiKey` is set. The values are as the user
-/// typed them: the model is trimmed when it is read back, and the key is
-/// written as given.
+/// typed them: the model is trimmed when it is read back, and a key from
+/// the line is written as given. A key from standard input is trimmed
+/// before it is written.
 public struct SetConfig: Equatable, Sendable {
     /// The value for DECIDE_MODEL, or nil without `--model`.
     public var model: String?
     /// The value for DECIDE_MODEL_API_KEY, or nil without `--api-key`.
-    /// Never set with `project`: the trust rule keeps a key out of a
-    /// project file.
-    public var apiKey: String?
+    /// `.standardInput` until the run reads it. Never set with `project`:
+    /// the trust rule keeps a key out of a project file.
+    public var apiKey: KeySource?
     /// Write `./.decide/config` instead of the home config, from
     /// `--project`.
     public var project: Bool
 
-    public init(model: String?, apiKey: String?, project: Bool = false) {
+    public init(model: String?, apiKey: KeySource?, project: Bool = false) {
         self.model = model
         self.apiKey = apiKey
         self.project = project
@@ -66,7 +67,11 @@ public enum CommandLineParser {
     /// per line of standard input, which a `-` context must hold, and does
     /// not go with `--quiet`.
     /// `--model` and `--api-key` set the model and key for this run, over the
-    /// environment and every config file. `--version` anywhere returns
+    /// environment and every config file. `--api-key -`, `--api-key=-`, and
+    /// `--api-key` with no value read the key from standard input, which the
+    /// line may name once, so none of them goes with a `-` context. A token
+    /// after `--api-key` that starts with `-` is a flag, not a key, and
+    /// stands on its own. `--version` anywhere returns
     /// `.version(alone:)`, alone or not. Without it, `--help` or `-h`
     /// anywhere returns `.help`. `--set-config` after those two takes the
     /// line for itself: `--model`, `--api-key`, and `--project` join it, and
@@ -104,7 +109,7 @@ public enum CommandLineParser {
         var json = false
         var each = false
         var model: String?
-        var apiKey: String?
+        var apiKey: KeySource?
         var start = 0
 
         while start < items.count {
@@ -160,9 +165,9 @@ public enum CommandLineParser {
                     continue
                 }
 
-                if let value = try flagValue(of: "--api-key", token: token, arguments: arguments, index: &index) {
+                if let source = try keySource(token: token, arguments: arguments, index: &index) {
                     guard apiKey == nil else { throw UsageError("--api-key was given twice") }
-                    apiKey = try setting(value, of: "--api-key")
+                    apiKey = source
                     continue
                 }
 
@@ -243,6 +248,10 @@ public enum CommandLineParser {
 
         let context = try Self.context(from: contexts)
 
+        if apiKey == .standardInput, context?.readsStandardInput == true {
+            throw UsageError(standardInputTwice)
+        }
+
         if json && quiet { throw UsageError("--json does not go with --quiet") }
 
         if each && quiet { throw UsageError("--each does not go with --quiet") }
@@ -288,12 +297,13 @@ public enum CommandLineParser {
     /// Parses a line that holds `--set-config`.
     ///
     /// The flag takes `--model`, `--api-key`, and `--project`, each once,
-    /// and nothing else. `--model` and `--api-key` take `--flag value` or
-    /// `--flag=value`. The line must set at least one of the two, and a key
-    /// may not go to a project file.
+    /// and nothing else. `--model` takes `--flag value` or `--flag=value`.
+    /// `--api-key` takes those, `-`, or no value; the last two read
+    /// standard input. The line must set at least one of the two, and a
+    /// key may not go to a project file.
     private static func parseSetConfig(_ arguments: [String]) throws(UsageError) -> SetConfig {
         var model: String?
-        var apiKey: String?
+        var apiKey: KeySource?
         var project = false
         var seen = false
         var index = 0
@@ -320,9 +330,9 @@ public enum CommandLineParser {
                 continue
             }
 
-            if let value = try flagValue(of: "--api-key", token: token, arguments: arguments, index: &index) {
+            if let source = try keySource(token: token, arguments: arguments, index: &index) {
                 guard apiKey == nil else { throw UsageError("--api-key was given twice") }
-                apiKey = try setting(value, of: "--api-key")
+                apiKey = source
                 continue
             }
 
@@ -685,6 +695,38 @@ public enum CommandLineParser {
         return nil
     }
 
+    /// Reads the value of `--api-key`. Returns nil when the token is some
+    /// other flag or a bare word. `--api-key <key>` and `--api-key=<key>`
+    /// give `.value`, and an empty or blank key is an error, so an unset
+    /// shell variable fails loudly instead of waiting on standard input.
+    /// `--api-key -` and `--api-key=-` give `.standardInput`, and so does
+    /// `--api-key` as the last token or before a token that starts with
+    /// `-`, which is a flag and stays where it is. Steps the index past a
+    /// value it consumes.
+    private static func keySource(
+        token: String,
+        arguments: [String],
+        index: inout Int
+    ) throws(UsageError) -> KeySource? {
+        let flag = "--api-key"
+        if token == flag {
+            guard index < arguments.count else { return .standardInput }
+            let next = arguments[index]
+            if next == "-" {
+                index += 1
+                return .standardInput
+            }
+            if next.hasPrefix("-") { return .standardInput }
+            index += 1
+            return .value(try setting(next, of: flag))
+        }
+        if token.hasPrefix(flag + "=") {
+            let value = String(token.dropFirst(flag.count + 1))
+            return value == "-" ? .standardInput : .value(try setting(value, of: flag))
+        }
+        return nil
+    }
+
     /// Reads one `--context` or `--context-json` value; `flag` is the one
     /// typed, for the messages, and `format` is how the run reads the text.
     /// The text before the first `=` is a name attempt when it is non-empty
@@ -782,8 +824,8 @@ public enum CommandLineParser {
     }
 
     /// The message for a line that names standard input twice, from any two
-    /// of `--context -`, `--context <name>=-`, and `--questions -`. The
-    /// expansion and the run use the same words.
+    /// of `--context -`, `--context <name>=-`, `--questions -`, and
+    /// `--api-key -`. The expansion and the run use the same words.
     static let standardInputTwice = "- was given twice: standard input reads once"
 
     /// The message for `--each` on a line with no `-` context, which the

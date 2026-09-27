@@ -211,3 +211,27 @@ must carry timestamps three seconds apart:
   --context-json event=- --each "Q?" --option a --option b 2>&1 >/dev/null \
   | while IFS= read -r line; do echo "$(date +%s) $line"; done
 ```
+
+The key prompt reads the real descriptor, so no unit test covers the echo.
+With `HOME` set to an empty temp directory, `decide --set-config --api-key -`
+at a terminal shows `API key: `, echoes nothing while you type, and writes
+the key to `$HOME/.config/decide/config`. From a pipe it shows no prompt and
+writes the line:
+
+```sh
+home=$(mktemp -d)
+HOME="$home" "$bin" --set-config --api-key -              # API key: (type; nothing echoes)
+cat "$home/.config/decide/config"                         # DECIDE_MODEL_API_KEY = "..."
+printf 'k\n' | HOME="$home" "$bin" --set-config --api-key - 2>&1 | wc -c   # 0: no prompt
+cat "$home/.config/decide/config"                         # DECIDE_MODEL_API_KEY = "k"
+```
+
+Ctrl-C at the prompt must leave echo on: a handler puts the terminal back
+before the signal ends the process. Run this from `bash`, which does not
+reset the terminal itself as zsh does. Press Ctrl-C at `API key: `, then
+check:
+
+```sh
+HOME="$home" "$bin" --set-config --api-key -              # API key: (press Ctrl-C here)
+stty -a | grep -cw -- '-echo'                             # 0: echo is on
+```

@@ -15,8 +15,11 @@ Decision models let you ask and answer yes/no, multiple choice, and multiple lev
 
 ```sh
 $ brew install vsekhar/tap/decide
-$ decide --set-config --model typesafe:jev-latest --api-key abc123...
+$ decide --set-config --model typesafe:jev-latest --api-key -
+API key:
 ```
+
+`--api-key -` asks for the key with echo off, so it stays out of your shell history. A script pipes it: `printf '%s' "$KEY" | decide --set-config --api-key -`. You can also set `DECIDE_MODEL` and `DECIDE_MODEL_API_KEY` in the environment, or write them to `$HOME/.config/decide/config`.
 
 ## Usage
 
@@ -199,7 +202,7 @@ $ cat ticket.txt | decide --context ticket=- --questions @triage.txt
 $ cat triage.txt | decide --context @ticket.txt --questions -
 ```
 
-A run reads standard input once, so `-` may appear once on a line. `@-` names a file called `-`.
+A run reads standard input once, so `-` may appear once on a line, whether as a context, a question file, or the API key. `@-` names a file called `-`.
 
 ### Confidence bars
 
@@ -356,6 +359,8 @@ $ decide --model openrouter:typesafe/jev-1.13 \
          "Is Atlanta the capital of Georgia?"
 yes
 ```
+
+A `"$KEY"` variable keeps the inline form out of your history, but not out of `ps`. `--api-key -` keeps it out of both: it reads one line from standard input, with a prompt and echo off at a terminal.
 
 ## Errors
 
