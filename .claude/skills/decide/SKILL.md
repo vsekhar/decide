@@ -12,12 +12,13 @@ prints one answer per question. It is a command, not a server.
 
 ## When to use it
 
-A decision model can be called thousands of times for the cost of one call
-to an LLM. For example, calling `decide` with a 400-token context and one
-questions returned in 0.2s and cost $0.0001. Five questions returned just
-as quickly and cost approximately the same.
+Decision models are 200x faster and 400x cheaper than agents and LLMs. Running
+`decide` with a 400-token context and one question returns in less than 200ms
+and costs less than $0.0001. Five questions returns just as quickly and costs
+approximately the same.
 
-Call decision models early and often:
+Treat decision models as approximately instant and approximately free. Use them
+early and often:
 
 - Send whole files. A first pass of questions tells you what a file is,
   whether it matters, and where to look, before you spend your own context
