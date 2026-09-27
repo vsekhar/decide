@@ -16,10 +16,10 @@ Decision models let you ask and answer yes/no, multiple choice, and multiple lev
 ```sh
 $ brew install vsekhar/tap/decide
 $ decide --set-config --model typesafe:jev-latest --api-key -
-API key:
+API key: <paste your API key>
 ```
 
-`--api-key -` asks for the key with echo off, so it stays out of your shell history. A script pipes it: `printf '%s' "$KEY" | decide --set-config --api-key -`. You can also set `DECIDE_MODEL` and `DECIDE_MODEL_API_KEY` in the environment, or write them to `$HOME/.config/decide/config`.
+You can also set `DECIDE_MODEL` and `DECIDE_MODEL_API_KEY` in the environment, or write them to `$HOME/.config/decide/config`.
 
 ## Usage
 
@@ -355,12 +355,10 @@ example.
 ```sh
 # Model and API key can be specified (or overridden) on the command line for zero-config usage
 $ decide --model openrouter:typesafe/jev-1.13 \
-         --api-key abc123... \
+         --api-key "$KEY" \
          "Is Atlanta the capital of Georgia?"
 yes
 ```
-
-A `"$KEY"` variable keeps the inline form out of your history, but not out of `ps`. `--api-key -` keeps it out of both: it reads one line from standard input, with a prompt and echo off at a terminal.
 
 ## Errors
 
